@@ -269,9 +269,38 @@ front-page header wears `.over` — transparent with white text, because it
 sits on the hero. There is no hero in the canvas, so it was white on cream:
 present, and invisible. Restore the ordinary state in `editor.css`.
 
+### 14c. core/html previews are a THIRD document your editor.css can't reach
+
+A `core/html` block does not render its markup into the canvas — it previews
+it inside a **sandbox iframe** nested in the canvas. Two consequences:
+
+- `document.querySelector` on the canvas frame finds nothing inside these
+  blocks (they read as empty), so a probe that "confirms the element is
+  missing" is probing the wrong document.
+- Rules in `editor.css` do not reliably apply in the sandbox. On the
+  reference, two attempts to restyle a skip link in there failed — the
+  sandbox kept `site.css`'s styling both times — leaving the block a black
+  sliver in the corner of the canvas.
+
+So for raw-HTML islands that are pure control chrome (skip link, nav toggle,
+close buttons): don't try to make them presentable inside the sandbox —
+**hide their block at the canvas level**, where editor.css demonstrably
+applies, same as an overlay dialog with no editable content:
+
+```css
+/* the skip link is, by definition, the header's first element */
+.editor-styles-wrapper header.nav > .wp-block-html:first-child{ display: none; }
+```
+
+The canvas wrapper carries nothing of the block's content to key on, so the
+selector has to be structural — say why in a comment, or the next person
+"fixes" it. Bonus on the reference: with the sliver out of the flex flow the
+header folded into a single row, matching the site.
+
 Do not reason about any of this from the markup. Read the computed values out
 of the canvas iframe (`pg.frame(name="editor-canvas")`) and fix what the
-numbers say.
+numbers say — and when an element is inside a core/html block, remember the
+numbers live in the sandbox, not the canvas.
 
 ## 15. Rewriting stored data: two ways to make it worse
 
