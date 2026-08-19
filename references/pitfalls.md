@@ -1,0 +1,166 @@
+# Pitfalls — every one of these bit the reference conversion
+
+Ordered by cost. The first five are invisible to file linting and surface
+only inside a running WordPress or the block editor.
+
+## 1. Block markup that WordPress silently rejects
+
+### 1a. Delimiter whitespace is grammar, not style
+`<!-- wp:paragraph {"className":"lead"}-->` — no space before `-->` — **is
+not a block delimiter**. WP_Block_Parser requires `\s+` before the closing
+arrow. The block becomes freeform HTML, its closer then closes the wrong
+thing, and every following block nests one level deeper. Symptom on the
+reference: a page quietly wrapped its entire remaining document inside a
+sticky form panel and rendered 4,794px too tall — while every comment-balance
+and HTML-balance check stayed green. LLM agents writing block markup produced
+19 of these across 15 pages (~1.5% of delimiters). **Run
+`scripts/lint-delimiters.py` on everything generated; it also `--fix`es.**
+
+### 1b. HTML comments inside block containers
+A plain `<!-- explanatory note -->` between a group's opener and its inner
+blocks becomes a freeform block of its own and invalidates the parent.
+Explanations go outside block boundaries or nowhere.
+
+### 1c. Attributes core/image does not serialize
+`width`, `height`, `loading`, `decoding`, `fetchpriority` on the `<img>` make
+the saved HTML disagree with what the block type would serialize → "This
+block contains unexpected or invalid content" on first open — 50 blocks on
+the reference. WordPress adds loading/decoding at render time itself; sizing
+is owned by the design's aspect-ratio frames. Same reason: never inject
+`sizeSlug` at import without also writing the matching `size-{slug}` class.
+
+### 1d. Spans inside RichText don't survive
+`<span class="ind">+</span>` in a summary, numbering spans in nav labels —
+gone on first edit. Decorative glyphs move to CSS (`::after`, counters).
+
+## 2. theme.json v3: core generates competing presets
+
+Without `settings.spacing.defaultSpacingSizes: false` and
+`settings.typography.defaultFontSizes: false`, WordPress generates its own
+1.5× scale **under the same numeric slugs** (`--wp--preset--spacing--80` =
+5.06rem instead of your clamp) and it wins. Symptom: every section ~30–100px
+short; the reference's live diff read 26% before this, near-zero after.
+`spacingScale:{steps:0}` does NOT work — the merged data keeps core's scale.
+Also: theme.json is cached — `wp_clean_theme_json_cache()` after changes.
+
+## 3. Core's layout CSS ties your specificity
+
+`:root :where(.is-layout-flow) > * { margin-block-start: 0 }` (+ first/last
+child variants) weighs one–two classes — the same as most design selectors —
+and print order varies. Margins vanish unpredictably (the reference lost the
+article sheet's top margin, card figure margins, signup margins). Two-part
+fix: enqueue the design CSS with `array('wp-block-library','global-styles')`
+as deps, AND prefix every selector with `:root ` (scripted; skip `:root`/
+`html` selectors and `@keyframes` bodies; flush standalone comments before
+prefixing or the prefix lands on them).
+
+## 4. Attachments steal page slugs
+
+Attachments share the slug pool. `about.webp` imported before the About page
+claims `/about/`; the page lands on `/about-2/`. Namespace attachment slugs
+(`photo-{name}`) in the importer.
+
+## 5. Permalinks: `update_option` is not enough
+
+A `%postname%`-leading structure needs verbose page rules, decided when
+WP_Rewrite initialises. Writing the option leaves rules generated for the old
+structure and **every post 404s** (page rules match first). Use
+`$wp_rewrite->set_permalink_structure('/%postname%/')` then flush. Recent WP
+installs default to date-based, so set it unconditionally, don't fill-if-empty.
+
+## 6. Inline styles → utility classes need `!important`
+
+A style attribute outranks every stylesheet rule by definition. Its
+replacement class does not — container rules like `.split .txt > * + *` win
+on specificity and the element silently loses its spacing. Mark the utility
+classes (and only them) `!important`, with a comment saying why.
+
+Placement needs a **reconciling matcher keyed on exact class-set + ordinal**
+("the 3rd element whose classes are exactly {h-lg}"), run repeatedly to a
+fixed point. Contains-matching drifted 19 placements on the reference.
+Elements styled but class-less in the source are invisible to the matcher —
+they must be listed and handled by hand.
+
+## 7. Wrapper-induced layout drift (the block bridge's job)
+
+- `core/image`'s `<figure>` sizes to the photo, not to the frame — page-hero
+  bands crop wrong until the figure takes the band's box (`position:absolute;
+  inset:0` inside positioned media containers, `height:100%` in aspect
+  frames).
+- A `core/buttons` div among block siblings opens a line box taller than its
+  inline-flex anchor (+8–13px), and **margins collapse** through it where the
+  original inline element's margin sat in a line box and never collapsed.
+  Where the link stood alone in a centred row, the line box was part of the
+  spacing — fix per placement, not globally.
+- Generic element rules catch new paragraphs: `.card p{flex:1}` grabbed
+  `p.numeral` (was a span) and blew the row open → `:not(.numeral)`.
+- Scoping: `.nav .wp-block-navigation` matched the overlay menu *inside* the
+  header part too → child combinator.
+
+## 8. WordPress's own sample content pollutes dynamic sections
+
+"Hello world!" is a post: it takes the newest slot in every Query Loop —
+no image, category "Uncategorized". The reference misread the resulting 26px
+as a harness artifact until real data proved otherwise. Importer trashes
+untouched `hello-world`/`sample-page` (modified≠created check; trash, not
+delete).
+
+## 9. Redirect maps imported from the old site contain self-references
+
+Old bundles map `/journal-x/` → the post that now lives at `/journal-x/`.
+Harmless while it resolves; an infinite 301 the moment it 404s. Guard **at
+redirect time** (target path == request path → don't redirect), not while
+building the map — then the entries double as slug-change safety nets.
+
+## 10. Contact Form 7 layout deltas (only visible with the plugin active)
+
+- `wpcf7_autop_or_not` → false, or every control gets a `<p>` wrapper and
+  grids collapse.
+- Textareas default to 10 rows → `[textarea name 40x2]`; let the design's
+  min-height govern.
+- `.wpcf7-form-control-wrap` is a block span around an inline-block control
+  → descender gap on every field; set it `display:flex`.
+- The submit spinner is an extra flex item; on phones it wraps to its own
+  line (+33–53px). Hide it — CF7 still sets `aria-busy` and disables the
+  button.
+- Never gate theme activation on CF7 (`Requires Plugins`): render the
+  design's own static form as fallback + an admin notice that nothing is
+  delivered.
+
+## 11. Verification traps
+
+- **Static harnesses lie.** The reference's file-based preview agreed at
+  0.56% while real WordPress was 26% out (pitfalls 2, 3, 5 are invisible
+  without core CSS and the block parser). Screenshots must come from a
+  running WP.
+- Lazy images make full-page screenshots nondeterministic — force
+  `loading=eager` + `img.decode()` + `document.fonts.ready` before capture.
+- Strip `srcset`/`sizes` on BOTH sides when diffing — WP serves its own
+  responsive sizes and a 433px rendition of the same photo reads as a
+  100%-different region.
+- Force `reduced_motion` in the browser context so reveals resolve and no
+  animation frame differs between runs.
+- Editor validity is checked by walking
+  `wp.data.select('core/block-editor').getBlocks()` recursively for
+  `isValid===false` — the canvas renders inside an iframe, so DOM selectors
+  for the canvas time out; wait on the data store instead.
+- The editor loads block markup pages fine but `PHP_CLI_SERVER_WORKERS=8`
+  is needed or `php -S` serialises the editor's parallel requests into
+  timeouts.
+- Keep the sandbox WordPress OUTSIDE the theme directory or every theme
+  linter starts scanning WP core.
+- SQLite drop-in: `db.copy`'s `{SQLITE_IMPLEMENTATION_FOLDER_PATH}` sits
+  inside single quotes — replace with a plain path string, not PHP code.
+  `DISABLE_WP_CRON` in the sandbox, or cron fetches every URL in imported
+  content and floods debug.log.
+
+## 12. Small but real
+
+- `wp:pattern` referencing shared card markup keeps the front-page teaser
+  and the archive loop from drifting apart.
+- Entity fidelity: avoid DOM parsers on content (`&mdash;` etc. get
+  re-serialised to literals); string-level processing only.
+- `.distignore` must NOT exclude the content bundle if the importer reads it
+  from the theme.
+- The old theme's `style.css:` check for stray syntax (the reference had a
+  dead `a@media` typo rule) — don't port bugs faithfully.
