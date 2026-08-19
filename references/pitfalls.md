@@ -227,6 +227,52 @@ Every rule in `editor.css` must be scoped under `.editor-styles-wrapper`.
 Verify: `awk '/^\./ && !/^\.editor-styles-wrapper/' assets/css/editor.css`
 prints nothing.
 
+### 14a. Putting things back into flow changes the parent's layout
+
+This is the trap that follows from the fix above, and it does not announce
+itself. A header is `display: grid; grid-template-columns: 1fr auto 1fr` and
+holds exactly three things on the site — because the toggle and the overlay
+panel are `position: fixed`, out of flow. `editor.css` puts both back into
+flow so they can be edited, and now **five** children compete for three
+columns: they wrap onto grid rows, one column takes 825px of a 1,480px
+canvas, and the navigation folds into three lines.
+
+The visible symptom is the navigation, so that is what you will try to fix.
+It is not the cause. **Count the flow children in the editor before touching
+anything**:
+
+```js
+[...document.querySelector('header.nav').children].map(c =>
+    c.className.slice(0, 60) + ' ' + Math.round(c.getBoundingClientRect().width))
+```
+
+A container whose layout assumed N children needs an editor-side layout that
+tolerates N+2. A wrapping flex row, with the restored panels given
+`flex-basis: 100%`, is usually the whole fix.
+
+### 14b. The editor's DOM is not the front end's DOM
+
+Two that cost time on the reference, both the same shape — a `site.css`
+selector that is correct on the site and matches nothing in the canvas:
+
+- `core/navigation` renders `<ul class="wp-block-navigation__container">` on
+  the front end and `<div class="…__container">` in the editor. Every rule
+  written as `ul.nav-links > ul` silently stops applying; the links run
+  together with `gap: 0`.
+- Rich text carries `white-space: pre-wrap` from Gutenberg's own stylesheet,
+  which outranks a theme selector — a one-word button breaks mid-word into
+  "ENQ / UIRE" and reads as a fault. The editor rule has to name
+  `.block-editor-rich-text__editable` itself.
+
+Also: a state class that depends on the page behind it. The reference's
+front-page header wears `.over` — transparent with white text, because it
+sits on the hero. There is no hero in the canvas, so it was white on cream:
+present, and invisible. Restore the ordinary state in `editor.css`.
+
+Do not reason about any of this from the markup. Read the computed values out
+of the canvas iframe (`pg.frame(name="editor-canvas")`) and fix what the
+numbers say.
+
 ## 15. Rewriting stored data: two ways to make it worse
 
 **Never regex over `wp_json_encode()` output.** It escapes forward slashes,

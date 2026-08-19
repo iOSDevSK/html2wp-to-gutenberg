@@ -76,10 +76,22 @@ Adapt paths, don't rewrite the logic.
 9. **The editor experience is a deliverable, not a side effect.** Open
    Appearance → Editor → Templates and look at the thumbnails: they must be
    distinguishable from each other. Then open one template and one page.
-   Nothing broken, nothing covering the canvas, no placeholder images. This
-   is where the client will spend their time, and nothing in tiers 1–2 looks
-   at it. See pitfalls #12 and #14 — both were found this way and neither
-   showed up in any automated check.
+   Nothing broken, nothing covering the canvas, no placeholder images, no
+   text that is technically present but invisible. This is where the client
+   will spend their time, and nothing in tiers 1–2 looks at it. Everything in
+   pitfalls #12–#14 was found this way, after every automated check was
+   green.
+
+   When something is wrong there, measure it in the canvas rather than
+   reasoning from the markup — the editor's DOM differs from the front end's
+   (#14b), and the visible symptom is often not the cause (#14a):
+
+   ```python
+   f = page.frame(name="editor-canvas")
+   f.evaluate("() => getComputedStyle(document.querySelector('.nav-links')).gap")
+   f.evaluate("() => [...document.querySelector('header.nav').children]"
+              ".map(c => c.className.slice(0,60) + ' ' + Math.round(c.getBoundingClientRect().width))")
+   ```
 
 ## The Gutenberg validity check, concretely
 
