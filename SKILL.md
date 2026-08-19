@@ -141,6 +141,14 @@ changes — each silently breaks otherwise:
 - Patterns only for genuine repetition (journal card, journal loop, CTA);
   content lives in `post_content`, not patterns — patterns don't save back
   to files and the client edits pages, not the Site Editor.
+- **Theme-shipped images inside a part or template must be a PHP pattern.**
+  A static `.html` cannot call `get_template_directory_uri()`, so a token
+  swapped by a `render_block` filter is the obvious move — and it breaks in
+  the block editor (renders in the browser, filter never runs) and in
+  `wp_head` (JSON-LD shipping `__THEME_URI__/...` to search engines). A PHP
+  pattern resolves at registration, so both get real markup. Bump the theme
+  `Version:` after adding one or WordPress serves a cached pattern list.
+  Pitfalls #12, #13.
 - Dynamic one-offs (topic chips with live counts) = one small
   server-rendered block; per-post derived values (reading time) = a block
   binding, so the value sits in an ordinary editable paragraph.
@@ -179,7 +187,16 @@ and the acceptance criteria: `references/verification.md`.
 Acceptance: every page ≤ ~1% pixel diff against the original at 1440px and
 390px; **0 invalid blocks** when every page and post is opened in the block
 editor (walk `wp.data.select('core/block-editor')`, don't eyeball); all
-original URLs answer 200 or intentional 301; `debug.log` clean.
+original URLs answer 200 or intentional 301; `debug.log` clean; no
+`__THEME_URI__` surviving in `parts/`, `templates/` or any rendered page.
+
+**Then open the editor and look at it.** Appearance → Editor → Templates:
+the thumbnails must be distinguishable from one another, with no broken
+images and no overlay panel covering the canvas. Nothing in the automated
+tiers examines the screen the client will actually work in, and on the
+reference two real defects lived there — every template previewing as the
+same expanded menu, and nine broken images — while every check above was
+green.
 
 ## Reference implementation
 

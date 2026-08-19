@@ -61,3 +61,63 @@ Adapt paths, don't rewrite the logic.
 7. If forms use CF7: install it in the sandbox and re-run the visual diff on
    form pages — three layout deltas only appear with the plugin active (see
    pitfalls #10).
+8. **No unresolved tokens anywhere a filter cannot reach.** Two greps, both
+   must be zero — the second is the one that matters, because `wp_head`
+   output never passes through the content filters and a token in JSON-LD is
+   invisible until a search engine reads it:
+
+   ```bash
+   grep -rn '__THEME_URI__' <theme>/parts <theme>/templates
+   for u in / /about/ /journal/ /contact/; do
+     curl -s "http://127.0.0.1:8899$u" | grep -c '__THEME_URI__'
+   done
+   ```
+
+9. **The editor experience is a deliverable, not a side effect.** Open
+   Appearance → Editor → Templates and look at the thumbnails: they must be
+   distinguishable from each other. Then open one template and one page.
+   Nothing broken, nothing covering the canvas, no placeholder images. This
+   is where the client will spend their time, and nothing in tiers 1–2 looks
+   at it. See pitfalls #12 and #14 — both were found this way and neither
+   showed up in any automated check.
+
+## The Gutenberg validity check, concretely
+
+Criterion 2 is the acceptance test the whole conversion is arranged around,
+and only Gutenberg can answer it — validity is decided by re-running each
+block's `save()` and comparing byte for byte, which no PHP can do. Drive a
+real browser:
+
+```python
+page.goto(f"{SITE}/wp-admin/post.php?post={page_id}&action=edit")
+page.wait_for_function(
+    "() => window.wp && wp.data && wp.data.select('core/block-editor')"
+    " && wp.data.select('core/block-editor').getBlocks().length > 0",
+    timeout=45000)
+report = page.evaluate("""() => {
+    const walk = (bs, o) => { bs.forEach(b => { o.total++;
+        if (b.isValid === false) o.invalid.push(b.name);
+        if (b.innerBlocks?.length) walk(b.innerBlocks, o); }); return o; };
+    return walk(wp.data.select('core/block-editor').getBlocks(), {total:0, invalid:[]});
+}""")
+```
+
+Run it over every page AND every post, not a sample: the reference finished
+at 1,025 blocks / 0 invalid, and the invalid ones cluster by block type, so
+one page of the wrong kind hides fifty faults.
+
+## A note on the SQLite sandbox
+
+The SQLite drop-in is right for this work — no database server, disposable,
+fast. Know its one limit: it **throws on binary blob writes**, so anything
+gzip-compressed (a plugin's revision history, for instance) fails there and
+nowhere else. If a check fails only in the sandbox and the code looks
+correct, try a real MariaDB before believing it:
+
+```bash
+docker run -d --name wp-mariadb -p 3307:3306 \
+  -e MARIADB_ROOT_PASSWORD=wordpress -e MARIADB_DATABASE=wordpress \
+  -e MARIADB_USER=wordpress -e MARIADB_PASSWORD=wordpress mariadb:11
+```
+
+then point wp-config at `127.0.0.1:3307` and delete `wp-content/db.php`.

@@ -154,7 +154,133 @@ building the map — then the entries double as slug-change safety nets.
   `DISABLE_WP_CRON` in the sandbox, or cron fetches every URL in imported
   content and floods debug.log.
 
-## 12. Small but real
+## 12. Theme-shipped images in static template files
+
+A `parts/*.html` or `templates/*.html` file cannot call
+`get_template_directory_uri()`, so the obvious move is a token
+(`__THEME_URI__/assets/images/x.webp`) swapped by a `render_block` /
+`the_content` filter. That filter is **server-side**, and two places never
+run it:
+
+- **The block editor.** It renders markup in the browser, so the token stays
+  literal and every image in that part is broken — on every screen that
+  previews it. The reference had six broken images in the footer, one in the
+  journal hero and three on the 404 page, visible in all nine template
+  thumbnails.
+- **`wp_head`.** Structured data, `og:image`, canonical URLs — none of it
+  passes through the content filters. The reference shipped JSON-LD telling
+  search engines to fetch `__THEME_URI__/assets/images/about.webp`. Silent,
+  and the one place it does real damage.
+
+**Fix: put theme-shipped imagery in a PHP pattern** (`patterns/*.php`) and
+reference it from the template with
+`<!-- wp:pattern {"slug":"theme/name"} /-->`. PHP patterns are registered by
+PHP, so the URL is real before anything asks for the content — front end and
+editor receive identical resolved markup, and the shipped theme file carries
+no install-specific path at all.
+
+For metadata, resolve **at import time**, where the real addresses are known.
+Never at render: structured data pointing at a token is worse than none.
+
+Audit with `grep -rn '__THEME_URI__' parts/ templates/` (must be empty) and
+`curl -s <url> | grep -c __THEME_URI__` on every page (must be 0) — the
+second one is what catches the `wp_head` case.
+
+## 13. WordPress caches a theme's pattern list against the theme VERSION
+
+Add `patterns/new-thing.php`, reload, and it is not registered. Nothing is
+wrong with the file. `WP_Theme::get_block_patterns()` caches the discovered
+list in a site transient keyed on the theme and invalidated by its `Version:`
+header.
+
+Bump `Version:` in `style.css` (you are shipping a change anyway) or call
+`wp_get_theme()->delete_pattern_cache()`. Cost one confused hour on the
+reference.
+
+## 14. The editor canvas is part of the deliverable
+
+An overlay panel — the mobile menu, a search drawer, a lightbox — is
+`position: fixed` and hidden until opened. In `editor.css` the reflex is to
+force it visible so its contents can be reached. Do that and it becomes a
+full screen of navigation sitting in the middle of **every** template: the
+Templates screen renders N thumbnails that are all the same panel and nobody
+can tell one template from another.
+
+Fold it instead, and unfold it on selection — Gutenberg puts `.is-selected`
+on a block's own element and `.has-child-selected` on its ancestors, so this
+needs no JavaScript:
+
+```css
+.editor-styles-wrapper .menu{ max-height: 3.25rem; overflow: hidden; padding: 0; }
+.editor-styles-wrapper .menu::before{ content: "Overlay menu — click to edit";
+    position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; }
+.editor-styles-wrapper .menu.is-selected,
+.editor-styles-wrapper .menu.has-child-selected{ max-height: none; overflow: visible; }
+.editor-styles-wrapper .menu.is-selected::before,
+.editor-styles-wrapper .menu.has-child-selected::before{ display: none; }
+```
+
+Clicking the band selects the group, which unfolds it — "click to edit" is
+literally what happens. Measured on the reference: 52px folded, 614px open.
+
+Every rule in `editor.css` must be scoped under `.editor-styles-wrapper`.
+Verify: `awk '/^\./ && !/^\.editor-styles-wrapper/' assets/css/editor.css`
+prints nothing.
+
+## 15. Rewriting stored data: two ways to make it worse
+
+**Never regex over `wp_json_encode()` output.** It escapes forward slashes,
+so `#__THEME_URI__/assets/#` cannot match `__THEME_URI__\/assets\/` — the
+pattern fails against its own encoder's output and the placeholder ships.
+Operate on the **values** before encoding (`map_deep()` handles nesting), or
+if you must touch stored text, capture the separator and write it back in the
+same shape:
+
+```php
+'#__THEME_URI__(\\\\?/)assets\1images\1([^\s"\\\\]+\.webp)#'
+```
+
+**Never write what `preg_*` returned without checking it.** A mis-escaped
+character class (`[^\s"\\]` written one backslash short) does not throw — the
+pattern fails to compile, `preg_replace_callback` returns `null`, and a
+migration that assigns that result **empties every record it touches**. Fifteen
+structured-data records on the reference, in one pass. Guard it:
+
+```php
+if ( null === $fixed || '' === $fixed ) { continue; }
+```
+
+Two more, learned the same afternoon:
+
+- Data written **only at creation** (SEO meta, per-page records) needs an
+  explicit one-shot repair guarded by an option, or every already-imported
+  site keeps the bug forever and a theme update fixes nothing.
+- A repair should walk **postmeta**, not posts. `post_status => 'any'` skips
+  custom statuses; the first version missed ten articles a plugin had parked.
+
+## 16. Editing block markup from a script
+
+The conversion does this constantly, and four things bite:
+
+- **`parse_blocks()` is asymmetric.** It keeps the whitespace *between
+  top-level blocks* as freeform entries, but `innerBlocks` does not. So
+  top-level indexes step `0, 2, 4` while nested ones are dense `6-0, 8-0`.
+- **A preset attribute renders through a class**, and for a static block the
+  block's own `save()` baked that class into the stored HTML — nothing adds it
+  at render. Writing `"textColor":"accent"` alone changes the database and not
+  the screen; write `has-accent-color has-text-color` too. Class *order* does
+  not matter: Gutenberg compares `class` as an unordered set.
+- **Eating a closing delimiter does not remove a block.** The parser
+  auto-closes at end of document, so everything after becomes that block's
+  *child* — same names, same count, same order. A flat comparison of block
+  names calls it unchanged; only a depth-aware one, or a token-level balance
+  count, sees it. This is the fault that folded a whole page into a sticky
+  panel 4,794px tall.
+- **`'0'` is `empty()` in PHP.** A patch addressing the first block on a page
+  is silently refused by `if ( empty( $patch['block'] ) )`. It survived four
+  test files that all happened to address nested blocks.
+
+## 17. Small but real
 
 - `wp:pattern` referencing shared card markup keeps the front-page teaser
   and the archive loop from drifting apart.
