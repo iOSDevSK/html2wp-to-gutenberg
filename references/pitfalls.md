@@ -297,6 +297,32 @@ selector has to be structural — say why in a comment, or the next person
 "fixes" it. Bonus on the reference: with the sliver out of the flex flow the
 header folded into a single row, matching the site.
 
+### 14d. The post-content placeholder reads as damage in thumbnails
+
+Content-framing templates are thin shells around `wp:post-content`, and
+WordPress renders that block's placeholder as three bare paragraphs. In the
+Templates grid every such template's thumbnail becomes torn text lines over a
+dominant footer — the owner will ask whether it is broken (the reference's
+owner asked three times).
+
+Keep WordPress's wording — clients meet that exact sentence in every Gutenberg
+tutorial — and dress only the slot:
+
+```css
+.editor-styles-wrapper .wp-block-post-content:not(:has([data-block])){
+    border-block: 1px dashed var(--line); background: var(--surface);
+    padding: var(--section-y-sm) var(--gutter);
+}
+.editor-styles-wrapper .wp-block-post-content:not(:has([data-block])) > p{
+    font-size: .78rem; color: var(--muted); max-width: 640px;
+}
+```
+
+`:has([data-block])` is the guard that matters: a template's placeholder is
+plain `<p>` elements, while a page being edited fills the same container with
+block wrappers that all carry `data-block`. Without it this rule restyles the
+client's real content.
+
 Do not reason about any of this from the markup. Read the computed values out
 of the canvas iframe (`pg.frame(name="editor-canvas")`) and fix what the
 numbers say — and when an element is inside a core/html block, remember the
