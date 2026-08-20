@@ -136,6 +136,24 @@ one page of the wrong kind hides fifty faults.
     Name what the run SKIPPED, too. A block that declares no support for a
     property is correctly not tested — but silent omission reads as coverage.
 
+11. **The import must be removable, and that is a round trip.** A theme that
+    installs a site has to be able to take it back off one. Verify by doing
+    it, in this order, because each step catches something the others cannot:
+
+    - **clean** → every flagged page, post and unused attachment gone; a page
+      the owner wrote themselves still there; a page of theirs that merely
+      *looks* imported still there.
+    - **the site still answers 200** — the front-page option must not outlive
+      the page it names, or the home page 404s for everyone.
+    - **import again onto the emptied site** → the pages come back at their
+      own addresses, NOT as `about-2`. A cleanup that left one page behind
+      still holds its slug, and `wp_unique_post_slug()` does not consider
+      post_status for hierarchical types — so this is the only check that
+      sees it.
+
+    Run it against a database you have dumped first. It deletes real content,
+    and a sandbox somebody is using for other work is not a fixture.
+
 ## A note on the SQLite sandbox
 
 The SQLite drop-in is right for this work — no database server, disposable,

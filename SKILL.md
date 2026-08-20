@@ -176,6 +176,74 @@ not `update_option`**, pitfall #5), trash untouched sample content
 and injects the `id` attr + `wp-image-N` class — and nothing else
 (pitfall #1c).
 
+The importer must **flag everything it creates** — one post meta key, on
+pages, posts AND attachments — and **snapshot the site options it is about to
+claim**, once, before claiming them:
+
+```php
+const THEME_IMPORT_FLAG = '_<slug>_imported';
+update_post_meta( $id, THEME_IMPORT_FLAG, 1 );   // every page, post, attachment
+
+// Written ONCE and never rewritten: a second import would otherwise capture
+// the theme's OWN values as "before" and turn the restore into a no-op.
+if ( ! isset( $state['site_options_before'] ) ) {
+    $state['site_options_before'] = array(
+        'show_on_front' => get_option( 'show_on_front' ),
+        'page_on_front' => get_option( 'page_on_front' ),
+        'page_for_posts' => get_option( 'page_for_posts' ),
+        'date_format' => get_option( 'date_format' ),
+        'permalink_structure' => get_option( 'permalink_structure' ),
+    );
+}
+```
+
+Both exist for step 8b, which cannot be added later: a theme that did not
+flag what it made can never tell its own pages from the owner's.
+
+### 8b. The other direction — removing the imported content
+
+An import installs a whole site. An owner who tries the theme and decides
+against it is left with forty pages and no way to tell which arrived with the
+design. So every generated theme ships `inc/content-clean.php` beside its
+importer, and a section at the foot of the setup screen.
+
+**It reads the flags back. It never guesses.** A page goes because it carries
+the import flag, never because its title or slug looked familiar — an owner's
+own page called "About" must survive, and the test says so.
+
+Two things it must not take:
+
+- **A photograph the owner's own content still uses.** Check surviving posts
+  for both spellings — the `wp-image-{id}` class and the file's basename —
+  plus `_thumbnail_id`. Whoever uploaded it, it is theirs now.
+- **A category anything is still filed under.** Delete only the empty ones.
+
+**Order matters once.** Put the front-page options back BEFORE deleting the
+page they name. WordPress turns the home page into a lookup of one post id
+and its status gate has no capability check, so deleting that post underneath
+the option 404s the entire site for everyone, administrator included.
+
+**Say which of two things is about to happen.** With a snapshot, the reading
+options are restored. Without one — every site installed before the theme
+started recording it — they can only reset to WordPress's defaults, and the
+screen must say that rather than claiming to restore.
+
+**Three rails, all of them.** Never automatic and never part of switching
+themes (switching stays reversible — that is the whole contract). A dry-run
+listing shown BEFORE the destructive step, with the count of pages edited
+since the import stated plainly, because those edits go too. And a typed
+confirmation, WordPress's own uninstall idiom.
+
+If the Visual Edit plugin may be present, drop its history rows for the pages
+being deleted (`page_key = 'block__page-{id}'`), guarded by a `SHOW TABLES`
+check — orphaned restore points for a post that no longer exists are the same
+leak as orphaned responsive rules.
+
+**The regression that proves it: clean, then import again onto the emptied
+site.** Assert the pages come back at their own addresses rather than as
+`-2` versions of them. A cleanup that left one page behind — holding a slug
+`wp_unique_post_slug()` will not reuse — shows up there and nowhere else.
+
 ### 9. Verify — files first, then a REAL WordPress (non-negotiable)
 
 File gates: `scripts/lint-delimiters.py`, `scripts/lint-html.py`, the
