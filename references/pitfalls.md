@@ -478,6 +478,33 @@ height attribute — the value lives only in the markup, as the registered
 default. Rewriting style from attributes alone deletes it. Fall back to
 `$type->attributes[ $name ]['default']`.
 
+### 16d-bis. A sanitiser allow-list is a second list that drifts
+
+If the UI decides what to offer from one list (block supports) and the writer
+decides what to accept from another (a validation allow-list), a property in
+the first and missing from the second is **not refused — it is dropped**. The
+control appears, takes a value, saves without complaint, and changes nothing.
+That is a far worse bug than a refusal, because there is nothing to read.
+
+`typography.fontFamily` was exactly that: choosing a typeface of one's own did
+nothing, while the preset dropdown worked (it writes an *attribute*, a
+different code path). Note the shape — **two spellings of one control failing
+differently** is the signature.
+
+The guard is a test that walks the offered list and asserts every entry both
+stores and reaches the markup:
+
+```php
+$offered = array_keys( SUPPORT_FLAG ); $tried = array_keys( $representative );
+sort( $offered ); sort( $tried );
+assert( $offered === $tried );   // a property added to one list and not the
+                                 // other stops being covered, silently
+```
+
+And when writing the pattern for a font family, remember what one is made of:
+quotes, spaces and commas (`"Cormorant Garamond", Georgia, serif`). A slug
+pattern rejects every real font stack.
+
 ### 16e. Structural edits: the whitespace is the work
 
 Because `parse_blocks()` keeps the blank lines between top-level blocks
@@ -496,8 +523,32 @@ Because `parse_blocks()` keeps the blank lines between top-level blocks
 - Nested addresses need `innerContent` null-placeholder accounting; refuse
   them rather than approximate.
 
+### 16f. The stored value is not the rendered value (fluid typography)
+
+With `settings.typography.fluid` on — which most generated theme.json files
+have — WordPress rewrites a block's custom `font-size` into a `clamp()` at
+render time:
+
+```
+stored:   style="font-size:28px"
+rendered: style="font-size:clamp(17.9px, 1.119rem + ((1vw - 3.2px) * 0.814), 28px)"
+```
+
+So a browser check asserting `getComputedStyle(el).fontSize === '28px'` fails
+against correct behaviour. Assert against the **stored** markup, or against
+the clamp's ceiling. Gutenberg validates the stored value, so nothing is wrong
+— but half an hour goes into proving it.
+
 ## 17. Small but real
 
+- A console listener catches `Failed to load resource` as well as real
+  exceptions. On a converted site those are the site's OWN broken image paths
+  — true, and nothing to do with the code under test. Filter them, and make
+  test fixtures point at images that actually exist.
+- Sandboxes on `php -S` have a handful of workers. An editor page that loads
+  itself, a canvas iframe and REST calls at once can queue past a 30s wait
+  under a full suite run. Retry the initial load rather than accepting a
+  flaky gate.
 - `wp:pattern` referencing shared card markup keeps the front-page teaser
   and the archive loop from drifting apart.
 - Entity fidelity: avoid DOM parsers on content (`&mdash;` etc. get
