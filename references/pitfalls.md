@@ -381,6 +381,121 @@ The conversion does this constantly, and four things bite:
   is silently refused by `if ( empty( $patch['block'] ) )`. It survived four
   test files that all happened to address nested blocks.
 
+### 16a. A container does not store its HTML as one string
+
+This is the one that deletes a page. A group holding a paragraph stores:
+
+```php
+'innerHTML'    => '<div class="wp-block-group"></div>',   // NOT the real markup
+'innerContent' => array( '<div class="wp-block-group">', null, '</div>' ),
+```
+
+`innerHTML` is only the concatenation of the non-null pieces, so it reads as
+an element **already closed and empty**. The `null` is where
+`serialize_blocks()` puts the child back.
+
+So the usual leaf-block writer —
+
+```php
+$block['innerHTML'] = $html;
+$block['innerContent'] = array( $html );   // fine for a paragraph
+```
+
+— **silently deletes every child** of a container. Padding a section empties
+it, and nothing reports an error: the write succeeds, the block is valid, the
+content is gone.
+
+Read and write only the piece carrying the opening tag:
+
+```php
+foreach ( $content as $i => $piece ) {
+    if ( null !== $piece ) { $content[ $i ] = $rewritten; break; }
+}
+$block['innerHTML'] = implode( '', array_filter( $content, fn( $p ) => null !== $p ) );
+```
+
+Affects group, columns, column, quote, list, details, cover — and `<summary>`
+edits on details, which live in that first piece while the answer below is
+child blocks.
+
+### 16b. `isValid` is not proof: a deprecated save passes
+
+Gutenberg reports a block valid if the markup matches the current save() **or
+any of the block's deprecations**. A deprecation match is *worse* than invalid:
+WordPress migrates the block on the next open and the attribute you wrote is
+gone, with nothing warning anybody. Seen with `core/separator` +
+`backgroundColor` — `isValid: true`, but the editor state showed
+`backgroundColor: null` and the classes dumped into `className`.
+
+So validity checks need a second assertion: **every attribute you set must
+still be readable back from the editor's own state.**
+
+```js
+wp.data.select('core/block-editor').getBlocks()
+  .some((b) => b.name === name && b.attributes[attr] === value)
+```
+
+### 16c. `wp.blocks.getSaveContent()` is the only authority on a fixture
+
+A hand-written fixture that is *already invalid* makes every row of a test
+fail for reasons that have nothing to do with the code. A `core/cover` fixture
+missing `has-background-dim-100` produced 15 invalid blocks and looked like a
+broken writer.
+
+**Assert an UNEDITED fixture is valid before any edited one means anything**,
+and take the markup from the editor itself:
+
+```js
+wp.blocks.getSaveContent(wp.blocks.getBlockType(b.name), b.attributes, b.innerBlocks)
+```
+
+### 16d. Which properties a block supports is not guessable — read the registry
+
+Hand-written lists drift and the surprises are not intuitive:
+
+| Block | Surprise |
+|---|---|
+| `core/column` | padding YES, margin **NO** |
+| `core/spacer` | no colour, no typography; margin only. Height is an **attribute**, plus a hand-written `style="height:…"` in save() |
+| `core/cover` | declares `color.background` **false** — its background is the overlay |
+| `core/image` | `color.text` and `color.background` both explicitly false |
+| `core/paragraph` | declares NEITHER `color.text` nor `color.background` — for colour, **absent means supported**; every other flag is off unless declared |
+| `core/separator` | bespoke colour recipe (`has-text-color`, `has-{slug}-color`); the generic writer cannot express it |
+| `core/quote` | `textAlign` is a top-level ATTRIBUTE; paragraph/heading/button declare `supports.typography.textAlign` instead |
+
+Read `WP_Block_Type_Registry::get_instance()->get_registered( $name )->supports`
+and let one function answer for the UI, the server and the tests — then a
+control is never offered for something that would be refused.
+
+**Do not treat `__experimentalSkipSerialization` as "don't write".**
+`core/button` sets it on typography, colour AND spacing and is styled
+perfectly well; it means "the block writes this itself, elsewhere" (for a
+button, on its `<a>`). Blocks with a genuinely bespoke recipe are found by
+testing, not by that flag.
+
+Attribute defaults matter too: a `core/spacer` left at 100px stores **no**
+height attribute — the value lives only in the markup, as the registered
+default. Rewriting style from attributes alone deletes it. Fall back to
+`$type->attributes[ $name ]['default']`.
+
+### 16e. Structural edits: the whitespace is the work
+
+Because `parse_blocks()` keeps the blank lines between top-level blocks
+(see 16 above), every structural operation has to step over them:
+
+- **Move** must swap with the neighbouring *block*, walking past freeform
+  entries. Swapping with the adjacent array element trades a section for a
+  newline and nothing appears to happen.
+- **Remove** must take its separator with it — the one after, or the one
+  before when removing the last block. Otherwise blank lines accumulate and
+  every address below drifts.
+- **Insert** brings exactly one separator per join.
+- **One structural operation per request**, then reload. They renumber the
+  page, so a queued patch for block 4 sent alongside a removal of block 2
+  lands on whatever slid into the gap.
+- Nested addresses need `innerContent` null-placeholder accounting; refuse
+  them rather than approximate.
+
 ## 17. Small but real
 
 - `wp:pattern` referencing shared card markup keeps the front-page teaser

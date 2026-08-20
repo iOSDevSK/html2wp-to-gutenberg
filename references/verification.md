@@ -118,6 +118,24 @@ Run it over every page AND every post, not a sample: the reference finished
 at 1,025 blocks / 0 invalid, and the invalid ones cluster by block type, so
 one page of the wrong kind hides fifty faults.
 
+10. **If anything WRITES block markup — a script, an importer, an editor —
+    the validity check is not enough on its own.** Three assertions have to
+    ride with it, each one covering a failure the others miss:
+
+    - **An unedited fixture is valid first.** Otherwise every row fails for a
+      reason that has nothing to do with the change under test. Take the
+      markup from `wp.blocks.getSaveContent()`, not from memory.
+    - **Every attribute written is still readable back** from
+      `wp.data.select('core/block-editor').getBlocks()`. `isValid` passes a
+      DEPRECATED save, and WordPress migrates such a block silently on the
+      next open — the attribute is gone and nothing warns.
+    - **Containers still contain their children.** A group, column, quote,
+      list, details or cover whose `innerContent` placeholders were flattened
+      serializes empty. See pitfall 16a; it is the failure that costs a page.
+
+    Name what the run SKIPPED, too. A block that declares no support for a
+    property is correctly not tested — but silent omission reads as coverage.
+
 ## A note on the SQLite sandbox
 
 The SQLite drop-in is right for this work — no database server, disposable,
