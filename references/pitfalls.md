@@ -505,6 +505,50 @@ And when writing the pattern for a font family, remember what one is made of:
 quotes, spaces and commas (`"Cormorant Garamond", Georgia, serif`). A slug
 pattern rejects every real font stack.
 
+### 16d-ter. A support may be STORED and never serialized
+
+Some supports are real, applied at render, and written into the markup by
+nobody. `getSaveContent()` returns markup identical to the plain block for:
+
+| Property | Applied by |
+|---|---|
+| `spacing.blockGap` | layout support, via a generated container class |
+| `style.position` (sticky) | render-time class |
+| `core/cover` `dimensions.aspectRatio` | render-time |
+
+And `wp_style_engine_get_styles()` **disagrees**: it happily returns
+`aspect-ratio:16/9` for one of them. The engine is not the authority — the
+block's `save()` is. Emitting a declaration the block would not produce is one
+entry too many in the style map, which is an invalid block. Prune those paths
+before the engine sees them, and store the attribute only.
+
+Corollary: values that live only in attributes are invisible to a browser
+reading the page. If an editor UI needs to show them, the server has to stamp
+them onto the preview (a `data-` attribute), or the control opens blank on a
+block that has the value set.
+
+### 16d-quater. `className` belongs to the block's ROOT element
+
+`useBlockProps` writes the owner's extra classes onto the block's root, which
+is NOT always the element that carries its styling:
+
+```
+core/button:  <div class="wp-block-button cve-anim-fade-up">   ← className here
+                <a class="… has-accent-color …">                ← every style here
+core/image:   <figure class="wp-block-image has-custom-border"> ← className + marker
+                <img class="has-border-color" style="border-…"> ← border + shadow
+```
+
+Writing both to one element makes that block — and only that block — invalid,
+which is exactly how it presents: eleven block types pass and one fails.
+Distinguish *root*, *styled* and *inner* elements.
+
+Two traps while implementing this: a check like
+`strtoupper($tags->get_tag()) === $wanted` **after** `next_tag(['tag_name' => $wanted])`
+compares the answer with itself and is always true; and `className` stored in
+attributes but never echoed into markup is its own invalid-block bug (removing
+one needs the OLD value, which only the attribute writer still knows).
+
 ### 16e. Structural edits: the whitespace is the work
 
 Because `parse_blocks()` keeps the blank lines between top-level blocks
@@ -538,6 +582,46 @@ So a browser check asserting `getComputedStyle(el).fontSize === '28px'` fails
 against correct behaviour. Assert against the **stored** markup, or against
 the clamp's ceiling. Gutenberg validates the stored value, so nothing is wrong
 — but half an hour goes into proving it.
+
+## 18. Adding what core blocks cannot store (responsive, animation)
+
+Two ways to go beyond a block's own attributes, with very different costs.
+
+**As a CSS class** (animation, hover, any curated effect): a class is a core
+attribute every block understands, so the page stays valid, stays ordinary
+WordPress content, and keeps working with the plugin off — it simply stops
+doing the extra thing. Cost: zero. Prefer this whenever the feature can be
+expressed as a fixed set of options.
+
+- Ship the stylesheet/script **only when the content carries the class** (scan
+  `post_content`). A page that uses none of it should download nothing.
+- **Never hide anything from CSS alone.** Apply the hidden starting state from
+  a class the SCRIPT adds to `<html>`, or a page whose JS fails shows nothing.
+  Test with `java_script_enabled=False`.
+- Honour `prefers-reduced-motion` by doing nothing at all.
+
+**As data in post meta** (per-breakpoint values): unavoidable when the value
+set is open-ended, and the one thing that will NOT survive deactivation. Say
+so out loud before building it.
+
+- Store **structured JSON, compile CSS on read.** Never store the CSS. (The
+  cautionary tale: a well-known builder stores CSS and changes breakpoints by
+  `str_replace` across every page's stored string.)
+- Validate per property with the **same whitelist** the block writer uses, or
+  the two drift.
+- **`!important` is mandatory.** Block styling is an inline `style` attribute,
+  which beats any selector however specific. Without it the override silently
+  does nothing.
+- Anchor with a generated class. Then: **duplicate must re-anchor recursively
+  and copy the rules** (a plain array copy shares anchors, so tuning one tunes
+  both), and **remove must prune** or the meta accumulates dead rules.
+- **Version it with the page's history**, and remember a rules-only change
+  leaves the markup byte-identical — a history that skips on a content hash
+  alone will never record it.
+- If the editor has a device preview, make its widths **agree with the
+  breakpoints**. A "Tablet" preview at 820px showing nothing for rules that
+  apply below 781px is indistinguishable from a broken feature.
+- `wp_slash()` JSON on the way into postmeta.
 
 ## 17. Small but real
 
