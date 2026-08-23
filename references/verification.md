@@ -54,6 +54,33 @@ Adapt paths, don't rewrite the logic.
    every page.
 5. **Importer idempotence**: run the import twice; second run creates
    nothing and overwrites nothing.
+5b. **The importer survives being interrupted** — the gate that would have
+   caught the reference's worst bug (pitfall #5b), and the only one that
+   exercises the host condition every client site actually has. Three runs:
+
+   ```bash
+   # (i) kill it mid-media, then let it carry on. Assert the counts, not the exit code.
+   php sandbox/media-only.php & PID=$!; ( sleep 4; kill -9 $PID ) & wait $PID
+   php sandbox/finish-import.php
+   #   → exactly <N> attachments carrying the import flag, and NO `photo-<x>-2` slug.
+   #   Before the fix this left 20 attachments, 96 files on disk and an EMPTY record.
+
+   # (ii) drive it the way the browser does: a budget so small each slice does one item.
+   #   → percent never decreases, reaches 100, `finished` true, and the stage label changes.
+
+   # (iii) the site that reported the bug: delete every attachment, drop the media
+   #   record, restore the pages' raw markup, then re-run the import.
+   #   → attachments back, ZERO pages still containing `__THEME_URI__/assets/images/`.
+   ```
+
+   Drive it over **HTTP through `admin-ajax.php` with a real login cookie**, not
+   only from the CLI. The CLI has no request clock and cannot see the failure
+   this gate is about — and the admin page is also where the progress script
+   silently failed to print (pitfall #5b's aside). Grep the fetched setup page
+   for the script before trusting the loop.
+
+   Ship it as a regression file in the theme (`tests/regression-import-resume.php`
+   on the reference) so it is re-run on every later change.
 6. **Animation matrix** (manual or scripted): reveal stagger, hero
    entrance/Ken Burns, marquees looping seamlessly (clone check), overlay
    menu + ESC + focus return, accordions, lightbox (arrows, backdrop,

@@ -176,6 +176,39 @@ not `update_option`**, pitfall #5), trash untouched sample content
 and injects the `id` attr + `wp-image-N` class — and nothing else
 (pitfall #1c).
 
+**The import must not be one request, and it must be visible.** Resizing
+sixty-five photographs takes minutes on real hosting; every host kills the
+request first, and an importer that saves its record only at the end of a loop
+throws away everything it just did — which is why the reference site arrived
+with all fifteen pages and an empty media library. Non-negotiable, all five,
+and pitfall **#5b** has the measurements:
+
+- **A server-owned state machine** — `media → rebind → terms → pages → posts →
+  settings` — driven one slice per `wp_ajax_` request. The client sends only
+  "carry on"; the server reads its own record and decides what that means.
+  Each call takes a time budget (~5s), does at least one item, and returns
+  `{stage, label, done, total, percent, finished, errors}`.
+- **The record is written after every item**, never after a stage. An
+  interrupted slice must cost one photograph.
+- **Identity from the database, not the record** — look up `photo-{base}` +
+  the import flag before creating anything, so a lost record adopts what is
+  there instead of making `-1` copies. Flag first, resize second.
+- **Per-item failures are recorded and counted as done**, or one bad file
+  wedges the bar at 64/65 for ever.
+- **Zero is never success.** Show the reasons; render "finished with 0 of 65
+  photographs" as an error, not a green tick.
+
+Keep the synchronous whole-import function: it is the CLI path and the no-JS
+fallback, and the slices wrap the same stage functions rather than forking
+them. **A `rebind` stage is part of the machine, not an extra** (pitfall #5c):
+without it, fixing the importer fixes future conversions and does nothing for
+the site that reported the bug.
+
+The screen has to say three things, because the client is watching it for
+minutes: that it has started, where it is (stage + climbing count + bar), and
+that it has finished, with what it imported. A spinner ending in a blank page
+is what this replaced.
+
 The importer must **flag everything it creates** — one post meta key, on
 pages, posts AND attachments — and **snapshot the site options it is about to
 claim**, once, before claiming them:

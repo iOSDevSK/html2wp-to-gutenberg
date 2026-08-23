@@ -68,6 +68,86 @@ structure and **every post 404s** (page rules match first). Use
 `$wp_rewrite->set_permalink_structure('/%postname%/')` then flush. Recent WP
 installs default to date-based, so set it unconditionally, don't fill-if-empty.
 
+## 5b. An import that must finish inside one request will not
+
+**The single most expensive bug in the reference conversion**, because it
+looked like a feature working. The importer copies the theme's photographs
+into the media library, and WordPress resizes each one into every registered
+size. Sixty-five photographs is ~12s on an M-series laptop and **minutes** on
+the shared hosting a client's site actually lives on. Every host kills the
+request first — PHP `max_execution_time`, or the proxy in front of it.
+
+Three properties, and it takes all three. Any two still lose the images:
+
+**(a) Write the record after every item, not after the loop.** The reference
+saved its file-name → attachment-ID map once, at the end of the media loop.
+Kill the process at 4 seconds and the DB has 20 attachments, 96 files on disk,
+and *nothing at all* in the option. Measured, not supposed. The next attempt
+therefore starts from zero, dies in the same place, and no site ever finishes.
+
+**(b) Identity comes from the database, not from the record.** Because the
+record was the only memory, retrying re-copied files that were already there —
+`wp_unique_filename()` turns them into `about-1.webp`, `about-2.webp`, and the
+library grows on every attempt. Before creating anything, look it up: you
+already namespace attachment slugs (#4), so `photo-{base}` + your import flag
+identifies your own copy exactly. Write the flag **immediately after the
+insert, before the slow resize** — reversed, an interruption between the two
+leaves an attachment that neither the importer nor the cleanup (#8b) can ever
+recognise.
+
+**(c) Hand the work out in slices, and show them.** One server-owned state
+machine — `media → rebind → terms → pages → posts → settings` — behind a
+`wp_ajax_` endpoint. The client sends no stage and no counter, only "carry
+on"; the server reads its own record and decides. Each call takes a **time
+budget** (~5s), always does at least one item, then stops and reports
+`{stage, label, done, total, percent, finished, errors}`. Keep the synchronous
+whole-import function for CLI and as the no-JS fallback — the slices should
+wrap the same stage functions, not fork them.
+
+> Printing that script: **`admin_footer` does not pass the hook suffix.** It
+> fires as `do_action('admin_footer', '')`. A callback that guards on its
+> argument — which is what every other admin hook trains you to write —
+> returns early on every request, the progress script is never printed, and
+> the form silently falls back to the one blocking POST you just spent a
+> release removing. It is invisible in `php -l`, in the DOM (the markup and
+> the `<style>` are both there), and in `debug.log`. Register against the
+> suffix `add_theme_page()` returned:
+> `add_action( 'admin_print_footer_scripts-' . $hook, … )`. Caught only by
+> fetching the real admin page over HTTP and grepping for the script.
+
+Two more, both of which turn a bug into a lie:
+
+- **A stage needs a way to be finished with an item it cannot do.** Record
+  per-item failures and count them as dealt with, or one unreadable file makes
+  the bar sit at 64/65 and the loop never ends.
+- **Never render zero as success.** `copy()` failing 65 times because the
+  uploads folder is unwritable produced *"Imported 0 images, 15 pages and 10
+  journal entries"* in a **green** notice. Collect the reasons, show them, and
+  make "finished with 0 of 65 photographs" an error.
+
+### 5c. The repair stage: importing the media later does not fix the pages
+
+Content is bound to the media library **as each page is created**, so a run
+whose media stage came back empty leaves pages whose every image still reads
+`__THEME_URI__/…`. They render — the theme resolves the token at display time
+(#12) — which is exactly why nobody notices: the site looks right and nothing
+in it is a library item, so the editor offers no replace, no alt text, no size,
+and the media library is empty.
+
+Fixing the importer does not heal those sites. The pages already exist and an
+idempotent importer will not touch a page twice. So ship a stage that finds
+flagged posts whose content still contains the placeholder and re-runs
+`bind_media()` on them. Two constraints:
+
+- **Flag, never shape** — the same rule as #8b. An owner's own page carrying
+  the same placeholder is theirs.
+- **Put `post_modified` back** where it was. A repair is not an edit, and the
+  cleanup screen counts a moved modified date as work the owner is about to
+  lose.
+
+This is the difference between "fixed in the next conversion" and "fixed on
+the site that reported it".
+
 ## 6. Inline styles → utility classes need `!important`
 
 A style attribute outranks every stylesheet rule by definition. Its
