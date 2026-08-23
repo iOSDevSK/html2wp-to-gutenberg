@@ -132,6 +132,19 @@ changes — each silently breaks otherwise:
   RichText (they die on first edit). Mixed link+text columns are `core/list`,
   not navigation. `aria-current` for custom-URL links via a `render_block`
   path-comparison filter (port `amanda_rose_blocks_mark_current_link`).
+- **The links do not live in the part.** A navigation block with inline links
+  renders fine and is not a menu: it never appears in the Site Editor's
+  Navigation screen, which instead shows the menu WordPress invents from the
+  page list — attached to nothing. Model menus (the links) apart from
+  placements (where one appears + the classes the design needs there), have
+  the importer create one `wp_navigation` post per menu, and resolve `{"ref":N}`
+  through a **pattern registered in code** — a static `.html` cannot carry an
+  ID, and a pattern *file* would cache the pre-import branch for ever (#13).
+  One menu, two placements, is how the header panel and the footer column stop
+  drifting apart. And **delete `register_nav_menus()`**: it calls
+  `add_theme_support('menus')`, which is the single line that puts Appearance →
+  Menus back — a working editor for menus a block theme renders nowhere.
+  Replace it with a link to `site-editor.php?p=%2Fnavigation`. Pitfall #12b.
 - Dialog semantics (`role`/`aria-modal`) that group blocks cannot carry: add
   at render time with `WP_HTML_Tag_Processor`, keyed on the block's anchor.
 - Templates are thin shells (`header part + post-content + footer part`).

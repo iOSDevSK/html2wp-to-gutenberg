@@ -266,6 +266,60 @@ Audit with `grep -rn '__THEME_URI__' parts/ templates/` (must be empty) and
 `curl -s <url> | grep -c __THEME_URI__` on every page (must be 0) — the
 second one is what catches the `wp_head` case.
 
+## 12b. A `core/navigation` with inline links is not a menu
+
+It renders perfectly, and it is seven lists of links wearing a menu's clothes.
+Reported as **"I can't edit the menu — not in the Site Editor and not under
+Appearance → Menus."** All three symptoms come from the same shape:
+
+- **`register_nav_menus()` is what puts Appearance → Menus back.** It calls
+  `add_theme_support('menus')`, and WordPress shows the classic screen for any
+  theme that claims it — block theme or not. So the obvious place to look
+  *works*: it edits `nav_menu` terms that a block theme renders **nowhere**. An
+  owner can build a whole menu there, save it, and watch the site not change.
+  The reference carried seven registered locations with a comment claiming the
+  importer used them. Nothing ever did. **Delete the call** — a block theme has
+  no use for it — and add an Appearance → Menus *link* pointing at
+  `site-editor.php?p=%2Fnavigation`, because removing the signpost is not the
+  same as fixing the road.
+- **The Site Editor's Navigation screen lists `wp_navigation` posts.** A theme
+  with none is not shown an empty list — it is shown the menu WordPress
+  *invents* from the site's page list (`WP_Navigation_Fallback`). It looks
+  exactly like the site's menu, is attached to nothing, and editing it does
+  nothing. Worse than an empty screen.
+- **Duplicated links drift.** Header bar and overlay panel were two unrelated
+  blocks holding the same six links.
+
+**The fix, and the one non-obvious part of it.** Model *menus* (the links)
+separately from *placements* (where a menu appears + the attributes the design
+needs there — the class names are load-bearing if JS keys on them). One menu
+can then have two placements, which is the whole point: one edit, both places.
+The importer creates one `wp_navigation` post per menu, flagged like everything
+else it makes, and never rewrites one somebody has edited.
+
+A static `parts/*.html` cannot carry `{"ref":N}` — the post ID does not exist
+until the site does. **A pattern per placement resolves it**, the same idiom as
+#12, branching:
+
+```php
+$id = $menus[ $placement['menu'] ] ?? 0;
+return $id
+    ? '<!-- wp:navigation ' . wp_json_encode( $attrs + array( 'ref' => $id ) ) . ' /-->'
+    : '<!-- wp:navigation ' . wp_json_encode( $attrs ) . ' -->' . $inline_links . '<!-- /wp:navigation -->';
+```
+
+**Register these in code, never as files in `/patterns`.** Pattern files are
+cached against the theme VERSION (#13), so the "no menus yet" branch would
+freeze the header on the inline fallback for as long as the version string
+held — which is for ever. This is the trap that makes the whole thing look
+finished and silently not work after the import.
+
+Two things to prove, because reasoning will not settle either: the rendered
+`<nav>` must be **byte-identical** between the two branches (it was), and an
+edit to a shared menu must reach **both** placements. Also refresh the menu
+lookup cache at the end of the import stage, or the request that created the
+menus spends the rest of its life still rendering the fallback.
+
 ## 13. WordPress caches a theme's pattern list against the theme VERSION
 
 Add `patterns/new-thing.php`, reload, and it is not registered. Nothing is

@@ -81,6 +81,24 @@ Adapt paths, don't rewrite the logic.
 
    Ship it as a regression file in the theme (`tests/regression-import-resume.php`
    on the reference) so it is re-run on every later change.
+5c. **The menus are editable, and editing one changes the site.** Nothing in
+   the pixel or validity tiers looks at this, and the reference shipped with
+   menus that could not be edited anywhere (pitfall #12b). Four assertions,
+   over HTTP against the real admin:
+
+   - Appearance's submenu has **no** classic `nav-menus.php` entry, and does
+     have a link to `site-editor.php?p=%2Fnavigation`.
+   - `/wp/v2/navigation?context=edit` lists one menu per menu the design has,
+     with the right link counts — not just WordPress's invented fallback.
+   - The header part opens in the editor with every navigation block carrying
+     a `ref` and `isValid !== false`, and the same number of `<nav>` elements
+     drawn in the canvas as the design has.
+   - Rename a link in a menu used in two places; assert **both** change on the
+     front end.
+
+   Plus the parity check that makes the conversion safe: the rendered `<nav>`
+   must be byte-identical before and after the menu post exists.
+
 6. **Animation matrix** (manual or scripted): reveal stagger, hero
    entrance/Ken Burns, marquees looping seamlessly (clone check), overlay
    menu + ESC + focus return, accordions, lightbox (arrows, backdrop,
