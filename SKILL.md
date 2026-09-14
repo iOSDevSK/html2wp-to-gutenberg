@@ -30,7 +30,10 @@ old runtime (~3,600 lines) is replaced by core WordPress.
 
 **Read `references/pitfalls.md` before writing any code.** Every entry there
 cost real debugging time on the reference conversion; several are invisible
-to linters and only appear inside a running WordPress.
+to linters and only appear inside a running WordPress. **Forms and search
+metadata have their own file** — `references/forms-and-seo.md` — because the
+reference got both wrong in the same way: the markup rendered, and the client
+could not edit it.
 
 ## What "1:1" means (set expectations first)
 
@@ -147,6 +150,14 @@ changes — each silently breaks otherwise:
   Replace it with a link to `site-editor.php?p=%2Fnavigation`. Pitfall #12b.
 - Dialog semantics (`role`/`aria-modal`) that group blocks cannot carry: add
   at render time with `WP_HTML_Tag_Processor`, keyed on the block's anchor.
+- **Forms are blocks, not a shortcode**, and the theme registers the
+  `clara-ve/*` family itself when Visual Edit Lite is not installed, so the
+  labels, placeholders, choices and button text are editable either way; the
+  theme also delivers the submission. `references/forms-and-seo.md` §2.
+- **`inc/seo.php` reads `_clara_ve_seo`**, the record the editor's SEO panel
+  writes, never a theme-prefixed key — and keeps
+  `add_theme_support('html2wp-runtime', ['schema' => 1])`, which is what stops
+  the plugin printing a second set of tags. Same file, §1.
 - Templates are thin shells (`header part + post-content + footer part`).
   The blog listing becomes the real posts page; static topic pages become
   category archives **at their original URLs** via one rewrite rule +
@@ -175,17 +186,18 @@ an ordered section list and `UNMAPPED STYLE:` lines for any inline style not
 in the mapping table — collect those into utility classes in ONE pass
 afterwards using a **reconciling matcher keyed on class-set + ordinal**
 (first-match placement drifts; the reference caught 19 misplacements that
-way). Forms become a shortcode the theme renders two ways (CF7 template when
-the plugin is active, the design's own static markup otherwise).
+way). Forms become the `clara-ve/*` block family — a field per field, so the
+client can rename a label or add a choice without touching markup; the rules
+and the saved-markup contract are in `references/forms-and-seo.md`.
 
 ### 8. Importer + setup screen
 
 One admin page, one idempotent import: media (**slug-namespace the
 attachments**, pitfall #4), categories with the topic pages' intros as
-descriptions, pages (claim-slug guard, template assignment, SEO meta),
-posts, redirect map, reading settings (**`$wp_rewrite->set_permalink_structure()`,
-not `update_option`**, pitfall #5), trash untouched sample content
-(pitfall #8), CF7 forms. `bind_media()` rewrites image URLs to attachments
+descriptions, pages (claim-slug guard, template assignment, SEO meta into
+`_clara_ve_seo` and only when it is empty), posts, redirect map, reading
+settings (**`$wp_rewrite->set_permalink_structure()`, not `update_option`**,
+pitfall #5), trash untouched sample content (pitfall #8). `bind_media()` rewrites image URLs to attachments
 and injects the `id` attr + `wp-image-N` class — and nothing else
 (pitfall #1c).
 
@@ -300,9 +312,12 @@ and the acceptance criteria: `references/verification.md`.
 
 Acceptance: every page ≤ ~1% pixel diff against the original at 1440px and
 390px; **0 invalid blocks** when every page and post is opened in the block
-editor (walk `wp.data.select('core/block-editor')`, don't eyeball); all
-original URLs answer 200 or intentional 301; `debug.log` clean; no
-`__THEME_URI__` surviving in `parts/`, `templates/` or any rendered page.
+editor (walk `wp.data.select('core/block-editor')`, don't eyeball) — and
+again with Visual Edit Lite activated, which registers the same form blocks;
+every form sends and every field is editable in the editor; a description
+typed into the editor's SEO panel reaches the page source, once; all original
+URLs answer 200 or intentional 301; `debug.log` clean; no `__THEME_URI__`
+surviving in `parts/`, `templates/` or any rendered page.
 
 **Then open the editor and look at it.** Appearance → Editor → Templates:
 the thumbnails must be distinguishable from one another, with no broken
@@ -317,4 +332,8 @@ green.
 `github.com/iOSDevSK/amanda-rose-guttenberg` (private) — the complete worked
 example: `steps/` is the conversion record (16 notes), `tools/` has the full
 harness set (visual-diff, measure-diff, render harnesses, apply-style-classes,
-raise-specificity, wp-sandbox). When in doubt, read how that repo did it.
+raise-specificity, wp-sandbox). When in doubt, read how that repo did it —
+with one exception: it predates `references/forms-and-seo.md`, and its
+`inc/forms.php` (a shortcode nobody can edit, CF7 or a static form that never
+sends) and `inc/seo.php` (`_amanda_rose_description`, which the editor's SEO
+panel never writes) are the counter-example there, not the model.

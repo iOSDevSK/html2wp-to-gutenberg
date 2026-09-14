@@ -39,7 +39,7 @@ Never invent classes. Never drop one because it "looks unused".
 | `<ul>` / `<li>` | `core/list` / `core/list-item` |
 | `<blockquote><p class="q">` | `core/quote` wrapping `core/paragraph {"className":"q"}` |
 | `<details>` + `<summary>` | `core/details` (see **Accordions**) |
-| `<form>` | a shortcode block (see **Forms**) |
+| `<form>` | `clara-ve/form` + one block per field (see **Forms**) |
 | `<hr>` | `<!-- wp:separator {"className":"hr"} -->` |
 
 `layout: {"type":"default"}` on every group is deliberate — it is flow layout,
@@ -141,19 +141,25 @@ but give the wrapper no class.
 
 ## Forms
 
-Replace the whole `<form>` element with a shortcode block. Do not attempt to
-rebuild the fields.
-
-| Source form | Shortcode |
-|---|---|
-| `contact.html` `<form class="form" data-demo data-redirect="form-submitted.html">` | `[amanda_rose_form id="contact"]` |
-| `guide.html` `<form class="form" data-demo>` | `[amanda_rose_form id="guide"]` |
-| front page `<form class="signup" data-demo>` | `[amanda_rose_form id="signup"]` |
-| `coming-soon.html` `<form class="signup" data-demo>` | `[amanda_rose_form id="soon"]` |
+Convert the `<form>` into the `clara-ve/*` block family, one block per field,
+so every label, placeholder, choice and the button text stay editable in the
+block editor. The mapping table, the saved-markup contract and how the theme
+registers and delivers the form are in **`forms-and-seo.md`** — read it
+before converting the first form.
 
 ```html
-<!-- wp:shortcode -->[amanda_rose_form id="contact"]<!-- /wp:shortcode -->
+<!-- wp:clara-ve/form {"formId":"contact","formClass":"form","wrapperClass":"ar-form","redirect":"/form-submitted/"} -->
+<div class="wp-block-clara-ve-form ar-form"><form class="form">…fields…</form></div>
+<!-- /wp:clara-ve/form -->
 ```
+
+The form's own class goes to `formClass`, its single wrapper's class to
+`wrapperClass`, `data-redirect` to `redirect`, and the design's hidden "sent"
+sentence to `message`. `data-demo` disappears with the static markup.
+
+A shortcode block (`[<slug>_form id="contact"]`) is what earlier conversions
+emitted. It renders and cannot be edited — keep the shortcode registered for
+pages published before the conversion, emit blocks for everything new.
 
 The journal search form is not a page form — it lives in the templates and is
 already handled.

@@ -194,6 +194,10 @@ building the map — then the entries double as slug-change safety nets.
 
 ## 10. Contact Form 7 layout deltas (only visible with the plugin active)
 
+*Historical.* A conversion emits form blocks and delivers submissions itself
+(`forms-and-seo.md` §2), so CF7 is generated only when the source site
+already used it. Everything below still applies to that case.
+
 - `wpcf7_autop_or_not` → false, or every control gets a `<p>` wrapper and
   grids collapse.
 - Textareas default to 10 rows → `[textarea name 40x2]`; let the design's
@@ -206,6 +210,31 @@ building the map — then the entries double as slug-change safety nets.
 - Never gate theme activation on CF7 (`Requires Plugins`): render the
   design's own static form as fallback + an admin notice that nothing is
   delivered.
+
+## 10b. A form nobody can edit, and an SEO panel that writes nowhere
+
+Two faults with one shape: the page renders exactly right and the client
+cannot change it. Both were shipped by the reference and survived every
+automated tier green.
+
+- **`[<slug>_form id="contact"]`.** In the block editor that is a text field
+  holding a shortcode. A label, a placeholder, the options in a select, the
+  words on the button — none of it is reachable, and those are most of the
+  edits a contact form ever gets. Worse, the static fallback the shortcode
+  rendered carried `data-demo` and no `action`: the delivered site had four
+  forms that could not send. Emit the `clara-ve/*` blocks and give the theme
+  a handler.
+- **`_<slug>_description`.** The converted theme is foreign to Visual Edit
+  Lite (`clara_ve_active_theme_is_ours()` is false — there is no
+  `clara-content/` bundle), and its `html2wp-runtime` declaration stands the
+  plugin's own `wp_head` output down. So the plugin's SEO panel is the only
+  SEO editor present, and it writes `_clara_ve_seo`. A theme reading its own
+  key answers every edit with silence: the field saves, the page source never
+  changes. Read `_clara_ve_seo`; have the importer write it.
+
+Both checks are cheap and neither is a screenshot: type a description in the
+panel and `curl | grep` for it; open a form page in the editor and count the
+blocks inside the form.
 
 ## 11. Verification traps
 

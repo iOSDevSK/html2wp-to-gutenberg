@@ -46,7 +46,9 @@ Adapt paths, don't rewrite the logic.
 2. **Editor validity**: walk `wp.data.select('core/block-editor')` for every
    page and post — recursive `isValid===false` count must be **0**. Wait on
    the data store (`wp.data… getBlocks().length>0`), not on canvas DOM — the
-   canvas is an iframe.
+   canvas is an iframe. Run it twice on the pages holding a form: once with
+   Visual Edit Lite absent and once with it active, since both register the
+   `clara-ve/*` blocks (step 7).
 3. **Routes**: every original URL answers — pages 200, legacy `.html` paths
    301 to the right target, old pagination/topic URLs preserved via rewrite
    rules, unknown URLs 404 (and never 301-loop).
@@ -103,10 +105,40 @@ Adapt paths, don't rewrite the logic.
    entrance/Ken Burns, marquees looping seamlessly (clone check), overlay
    menu + ESC + focus return, accordions, lightbox (arrows, backdrop,
    keyboard), page transitions, and all `prefers-reduced-motion` branches.
-7. If forms use CF7: install it in the sandbox and re-run the visual diff on
-   form pages — three layout deltas only appear with the plugin active (see
-   pitfalls #10).
-8. **No unresolved tokens anywhere a filter cannot reach.** Two greps, both
+7. **Forms: editable, delivered, and valid on both sides** (pitfall #10b).
+   In the sandbox, with no Visual Edit Lite installed:
+
+   - open a form page in the block editor and click a field — its label,
+     placeholder and, for a select, its choices must be editable, and the
+     button text with it. A single block holding a shortcode is a fail;
+   - submit the form on the front end and assert the mail is attempted and
+     the redirect or the message happens. A form with `data-demo` or no
+     `action` is a fail, whatever it looks like;
+   - then activate Visual Edit Lite 1.27 or later — which registers the same
+     `clara-ve/*` names — reload every form page in the editor and assert
+     **0 invalid blocks**;
+   - and the same trip back: with the plugin active, edit a field and save the
+     page, deactivate the plugin, reopen — still **0 invalid**. Each side has
+     to re-serialize what the other wrote, so one direction proves half of it.
+     This is the drift check; it fails when the theme's attributes or `save`
+     output have diverged from the plugin's.
+
+   If the source site used CF7, also install it and re-run the visual diff on
+   form pages — three layout deltas only appear with the plugin active
+   (pitfalls #10).
+8. **Search metadata reaches the page, once** (pitfall #10b). With Visual
+   Edit Lite active, type a description into its SEO panel for one page,
+   save, then:
+
+   ```bash
+   curl -s "http://127.0.0.1:8899/contact/" | grep -c 'og:title'         # exactly 1
+   curl -s "http://127.0.0.1:8899/contact/" | grep 'name="description"'  # the typed text
+   ```
+
+   Without the plugin, the same page falls back to its excerpt. Two
+   `og:title` tags mean the `html2wp-runtime` declaration went missing; an
+   unchanged description means the theme is reading its own meta key.
+9. **No unresolved tokens anywhere a filter cannot reach.** Two greps, both
    must be zero — the second is the one that matters, because `wp_head`
    output never passes through the content filters and a token in JSON-LD is
    invisible until a search engine reads it:
@@ -118,7 +150,7 @@ Adapt paths, don't rewrite the logic.
    done
    ```
 
-9. **The editor experience is a deliverable, not a side effect.** Open
+10. **The editor experience is a deliverable, not a side effect.** Open
    Appearance → Editor → Templates and look at the thumbnails: they must be
    distinguishable from each other. Then open one template and one page.
    Nothing broken, nothing covering the canvas, no placeholder images, no
@@ -163,7 +195,7 @@ Run it over every page AND every post, not a sample: the reference finished
 at 1,025 blocks / 0 invalid, and the invalid ones cluster by block type, so
 one page of the wrong kind hides fifty faults.
 
-10. **If anything WRITES block markup — a script, an importer, an editor —
+11. **If anything WRITES block markup — a script, an importer, an editor —
     the validity check is not enough on its own.** Three assertions have to
     ride with it, each one covering a failure the others miss:
 
@@ -181,7 +213,7 @@ one page of the wrong kind hides fifty faults.
     Name what the run SKIPPED, too. A block that declares no support for a
     property is correctly not tested — but silent omission reads as coverage.
 
-11. **The import must be removable, and that is a round trip.** A theme that
+12. **The import must be removable, and that is a round trip.** A theme that
     installs a site has to be able to take it back off one. Verify by doing
     it, in this order, because each step catches something the others cannot:
 
