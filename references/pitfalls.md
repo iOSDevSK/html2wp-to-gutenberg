@@ -236,6 +236,13 @@ Both checks are cheap and neither is a screenshot: type a description in the
 panel and `curl | grep` for it; open a form page in the editor and count the
 blocks inside the form.
 
+Fixed in the reference at 2.4.0 — and 2.4.1 two hours later, because taking
+Contact Form 7 out went one file deep: the importer's last stage still called
+the form installer that had just been deleted, and the setup screen still asked
+for the plugin. `php -l` sees neither. When a rendering path goes, grep the
+whole theme for every function and option that went with it, then load the
+setup screen and run the stage.
+
 ## 11. Verification traps
 
 - **Static harnesses lie.** The reference's file-based preview agreed at

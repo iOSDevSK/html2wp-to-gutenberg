@@ -332,8 +332,10 @@ green.
 `github.com/iOSDevSK/amanda-rose-guttenberg` (private) — the complete worked
 example: `steps/` is the conversion record (16 notes), `tools/` has the full
 harness set (visual-diff, measure-diff, render harnesses, apply-style-classes,
-raise-specificity, wp-sandbox). When in doubt, read how that repo did it —
-with one exception: it predates `references/forms-and-seo.md`, and its
-`inc/forms.php` (a shortcode nobody can edit, CF7 or a static form that never
-sends) and `inc/seo.php` (`_amanda_rose_description`, which the editor's SEO
-panel never writes) are the counter-example there, not the model.
+raise-specificity, wp-sandbox). When in doubt, read how that repo did it.
+Forms and search metadata are the part to read at version **2.4.1 or later** —
+`inc/form-blocks.php`, `inc/seo.php` and `steps/14-forms-blocks-seo.md` are the
+worked example of `references/forms-and-seo.md`. Everything it shipped before
+that (a shortcode nobody can edit, a static form that never sends, and
+`_amanda_rose_description`, which the editor's SEO panel never writes) is the
+counter-example, and `steps/11-forms-cf7.md` still describes it.
