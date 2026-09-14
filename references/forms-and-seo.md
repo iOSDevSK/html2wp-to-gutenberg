@@ -137,7 +137,7 @@ Attributes, per block:
 
 | Block | Attributes |
 |---|---|
-| `clara-ve/form` | `formId`, `formClass`, `wrapperClass`, `redirect`, `message` |
+| `clara-ve/form` | `formId`, `formClass`, `wrapperClass`, `redirect`, `message`, `formType` (`contact` \| `list`), `listId`, `recipient` |
 | `clara-ve/field` | the field set + `type` (default `text`) |
 | `clara-ve/textarea` | the field set + `rows` (0 = let CSS decide) |
 | `clara-ve/select` | the field set + `options` (array of strings) |
@@ -205,6 +205,20 @@ When Visual Edit Lite is present it registers the blocks first, so its route
 answers instead: submissions land in Form Submissions, the recipient comes
 from Form Settings, and Akismet and the rate limit apply. Nothing in the
 theme has to detect this.
+
+**Delivery is the owner's choice, and it travels in the page.** `formType`
+decides whether a submission is emailed or handed to a mailing list, `listId`
+says which list, `recipient` names an address for that one form. Register all
+three even if the theme can only email — an attribute the theme does not
+register is dropped the first time the page is saved without the plugin, and
+the owner's setting is gone with nothing said. Honour what you can, and sign
+what you honour: a recipient read straight from the request is a mail relay,
+and a list id read straight from the request writes into the owner's contacts.
+One `wp_hash` over the values, emitted beside them and verified on the way back
+in, is the whole fix; anything unsigned falls back to the site's own address.
+Tell the editor what this theme cannot do
+(`window.claraVeFormBlocks.lists = false`) rather than showing a control
+nothing will honour.
 
 ### Contact Form 7
 
