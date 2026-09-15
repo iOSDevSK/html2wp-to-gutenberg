@@ -92,8 +92,8 @@ library grows on every attempt. Before creating anything, look it up: you
 already namespace attachment slugs (#4), so `photo-{base}` + your import flag
 identifies your own copy exactly. Write the flag **immediately after the
 insert, before the slow resize** — reversed, an interruption between the two
-leaves an attachment that neither the importer nor the cleanup (#8b) can ever
-recognise.
+leaves an attachment that neither the importer nor the cleanup (SKILL.md
+step 8b) can ever recognise.
 
 **(c) Hand the work out in slices, and show them.** One server-owned state
 machine — `media → rebind → terms → pages → posts → settings` — behind a
@@ -139,7 +139,8 @@ idempotent importer will not touch a page twice. So ship a stage that finds
 flagged posts whose content still contains the placeholder and re-runs
 `bind_media()` on them. Two constraints:
 
-- **Flag, never shape** — the same rule as #8b. An owner's own page carrying
+- **Flag, never shape** — the same rule as the cleanup in SKILL.md step 8b.
+  An owner's own page carrying
   the same placeholder is theirs.
 - **Put `post_modified` back** where it was. A repair is not an edit, and the
   cleanup screen counts a moved modified date as work the owner is about to
@@ -546,7 +547,9 @@ The conversion does this constantly, and four things bite:
   *child* — same names, same count, same order. A flat comparison of block
   names calls it unchanged; only a depth-aware one, or a token-level balance
   count, sees it. This is the fault that folded a whole page into a sticky
-  panel 4,794px tall.
+  panel 4,794px tall. `scripts/lint-delimiters.py` walks that stack over
+  every file, `content/` included, and names the closer that popped the
+  wrong block.
 - **`'0'` is `empty()` in PHP.** A patch addressing the first block on a page
   is silently refused by `if ( empty( $patch['block'] ) )`. It survived four
   test files that all happened to address nested blocks.
@@ -753,6 +756,25 @@ against correct behaviour. Assert against the **stored** markup, or against
 the clamp's ceiling. Gutenberg validates the stored value, so nothing is wrong
 — but half an hour goes into proving it.
 
+## 17. Small but real
+
+- A console listener catches `Failed to load resource` as well as real
+  exceptions. On a converted site those are the site's OWN broken image paths
+  — true, and nothing to do with the code under test. Filter them, and make
+  test fixtures point at images that actually exist.
+- Sandboxes on `php -S` have a handful of workers. An editor page that loads
+  itself, a canvas iframe and REST calls at once can queue past a 30s wait
+  under a full suite run. Retry the initial load rather than accepting a
+  flaky gate.
+- `wp:pattern` referencing shared card markup keeps the front-page teaser
+  and the archive loop from drifting apart.
+- Entity fidelity: avoid DOM parsers on content (`&mdash;` etc. get
+  re-serialised to literals); string-level processing only.
+- `.distignore` must NOT exclude the content bundle if the importer reads it
+  from the theme.
+- The old theme's `style.css:` check for stray syntax (the reference had a
+  dead `a@media` typo rule) — don't port bugs faithfully.
+
 ## 18. Adding what core blocks cannot store (responsive, animation)
 
 Two ways to go beyond a block's own attributes, with very different costs.
@@ -792,22 +814,3 @@ so out loud before building it.
   breakpoints**. A "Tablet" preview at 820px showing nothing for rules that
   apply below 781px is indistinguishable from a broken feature.
 - `wp_slash()` JSON on the way into postmeta.
-
-## 17. Small but real
-
-- A console listener catches `Failed to load resource` as well as real
-  exceptions. On a converted site those are the site's OWN broken image paths
-  — true, and nothing to do with the code under test. Filter them, and make
-  test fixtures point at images that actually exist.
-- Sandboxes on `php -S` have a handful of workers. An editor page that loads
-  itself, a canvas iframe and REST calls at once can queue past a 30s wait
-  under a full suite run. Retry the initial load rather than accepting a
-  flaky gate.
-- `wp:pattern` referencing shared card markup keeps the front-page teaser
-  and the archive loop from drifting apart.
-- Entity fidelity: avoid DOM parsers on content (`&mdash;` etc. get
-  re-serialised to literals); string-level processing only.
-- `.distignore` must NOT exclude the content bundle if the importer reads it
-  from the theme.
-- The old theme's `style.css:` check for stray syntax (the reference had a
-  dead `a@media` typo rule) — don't port bugs faithfully.

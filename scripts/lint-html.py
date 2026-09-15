@@ -12,6 +12,8 @@ That is exactly the fault this caught on the guide page, where one unclosed
 wrapper swallowed the rest of the document and made it 4,794px too tall.
 
     python3 lint-html.py <theme-dir>       # exits non-zero if anything is off
+
+Exit status: 0 clean, 1 problems found, 2 nothing to check (bad path, no files).
 """
 
 import re
@@ -19,7 +21,6 @@ import sys
 from html.parser import HTMLParser
 from pathlib import Path
 
-THEME = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else Path(".").resolve()
 DIRS = ("content", "parts", "templates", "patterns")
 
 VOID = {
@@ -28,8 +29,13 @@ VOID = {
 }
 
 # PHP echoes and block comments are not HTML; take them out before parsing.
-PHP = re.compile(r"<\?php.*?\?>", re.S)
+# Newlines are kept so the line numbers still refer to the file on disk.
+PHP = re.compile(r"<\?(?:php|=).*?(?:\?>|\Z)", re.S)
 COMMENT = re.compile(r"<!--.*?-->", re.S)
+
+
+def keep_newlines(match):
+    return re.sub(r"[^\n]", "", match.group(0))
 
 
 class Balance(HTMLParser):
@@ -43,7 +49,9 @@ class Balance(HTMLParser):
             self.stack.append((tag, self.getpos()[0]))
 
     def handle_startendtag(self, tag, attrs):
-        pass
+        # `<div/>` is not self-closing in HTML: the browser drops the slash and
+        # opens the element. Only the void elements really close themselves.
+        self.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag):
         if tag in VOID:
@@ -66,29 +74,49 @@ class Balance(HTMLParser):
 
 def check(path):
     source = path.read_text(encoding="utf-8")
-    source = PHP.sub("", source)
-    source = COMMENT.sub("", source)
+    source = PHP.sub(keep_newlines, source)
+    source = COMMENT.sub(keep_newlines, source)
 
     parser = Balance()
     parser.feed(source)
+    parser.close()
     problems = list(parser.problems)
-    problems += [f"{line}: <{tag}> is never closed" for tag, line in parser.stack]
+    # Whatever is still open at the end of the file. The line named is the
+    # outermost survivor; when a later element of the same name stole this
+    # one's closing tag, the culprit is that later element, not this line.
+    problems += [f"{line}: <{tag}> is never closed (or a later <{tag}> took its closing tag)"
+                 for tag, line in parser.stack]
     return problems
 
 
-def main():
-    files = [p for d in DIRS for p in sorted((THEME / d).rglob("*.html"))]
-    files += sorted((THEME / "patterns").rglob("*.php"))
+def main(argv):
+    flags = {a for a in argv if a.startswith("-")}
+    args = [a for a in argv if not a.startswith("-")]
+    if flags or len(args) > 1:
+        print("usage: lint-html.py [<theme-dir>]", file=sys.stderr)
+        return 2
+
+    theme = Path(args[0]).resolve() if args else Path(".").resolve()
+    if not theme.is_dir():
+        print(f"error: {theme} is not a directory", file=sys.stderr)
+        return 2
+
+    files = [p for d in DIRS for p in sorted((theme / d).rglob("*.html"))]
+    files += sorted((theme / "patterns").rglob("*.php"))
+    if not files:
+        print(f"error: nothing to check under {theme} — no *.html in {'/, '.join(DIRS)}/"
+              " and no patterns/*.php", file=sys.stderr)
+        return 2
 
     total = 0
     for path in files:
         for problem in check(path):
-            print(f"{path.relative_to(THEME)}:{problem}")
+            print(f"{path.relative_to(theme)}:{problem}")
             total += 1
 
     print(f"\nChecked {len(files)} file(s). {total} problem(s).")
-    sys.exit(1 if total else 0)
+    return 1 if total else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv[1:]))

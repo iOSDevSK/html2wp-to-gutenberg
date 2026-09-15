@@ -57,7 +57,14 @@ __CLARA_UPLOADS_URI__/clara-ve-import/about/story.webp  →  __THEME_URI__/asset
 __CLARA_THEME_URI__/assets/j-5.webp                     →  __THEME_URI__/assets/images/j-5.webp
 ```
 
-- **Keep** `alt`, `width`, `height`, `loading`, `decoding`, `fetchpriority`.
+- **Keep** `alt`. Nothing else on the source `<img>` survives.
+- **Drop** `width`, `height`, `loading`, `decoding` and `fetchpriority`
+  (pitfall #1c — 50 invalid blocks on the reference). `width` and `height`
+  are attributes `core/image` keeps in the delimiter JSON with no HTML
+  source, so a bare `width="1024"` on the `<img>` matches no `save()` and the
+  block opens as "unexpected or invalid content". WordPress adds `loading`
+  and `decoding` itself at render time; the design's aspect-ratio frames own
+  the sizing.
 - **Drop** `srcset` and `sizes`. WordPress regenerates both from the media
   library after import; a hand-written srcset pointing at theme files would
   contradict it.
@@ -67,7 +74,7 @@ Markup shape:
 
 ```html
 <!-- wp:image {"className":"fig fig-3x4 curtain"} -->
-<figure class="wp-block-image fig fig-3x4 curtain"><img src="__THEME_URI__/assets/images/detail.webp" alt="…" width="1024" height="1536"/></figure>
+<figure class="wp-block-image fig fig-3x4 curtain"><img src="__THEME_URI__/assets/images/detail.webp" alt="…"/></figure>
 <!-- /wp:image -->
 ```
 
@@ -78,7 +85,7 @@ every `button.m` — becomes an image **linked to its own file**:
 
 ```html
 <!-- wp:image {"linkDestination":"media","className":"gal-item fig fig-3x4"} -->
-<figure class="wp-block-image gal-item fig fig-3x4"><a href="__THEME_URI__/assets/images/w-1.webp"><img src="__THEME_URI__/assets/images/w-1.webp" alt="…" width="1024" height="1536"/></a></figure>
+<figure class="wp-block-image gal-item fig fig-3x4"><a href="__THEME_URI__/assets/images/w-1.webp"><img src="__THEME_URI__/assets/images/w-1.webp" alt="…"/></a></figure>
 <!-- /wp:image -->
 ```
 
@@ -121,7 +128,7 @@ but give the wrapper no class.
 ## Accordions
 
 ```html
-<!-- wp:details {"className":"","summary":"How many hours do we need?"} -->
+<!-- wp:details -->
 <details class="wp-block-details"><summary>How many hours do we need?</summary>
 	<!-- wp:group {"className":"ans","layout":{"type":"default"}} -->
 	<div class="wp-block-group ans">
@@ -133,9 +140,29 @@ but give the wrapper no class.
 ```
 
 - Drop `<span class="ind">+</span>` — CSS draws the indicator now.
-- The first item in each group had `open` in the source; add `"showContent":true`
-  to that one only.
+- `summary` is read from the `<summary>` element itself (`source:
+  rich-text`), so it does not go in the delimiter JSON; neither does an empty
+  `className`.
+- The first item in each group had `open` in the source; that one only gets
+  `{"showContent":true}` in the JSON **and** `open` on the element —
+  `<details class="wp-block-details" open>` — because `save()` writes both
+  from the same attribute and the markup has to agree with it.
 - The `.faq` wrapper around the whole set stays a `core/group`.
+
+---
+
+## Separators
+
+```html
+<!-- wp:separator {"className":"hr"} -->
+<hr class="wp-block-separator has-alpha-channel-opacity hr"/>
+<!-- /wp:separator -->
+```
+
+`has-alpha-channel-opacity` is what the block's default `opacity` writes into
+the markup. Leave it out and the `<hr>` matches, at best, a deprecated
+`save()` — which passes `isValid` and is silently migrated on the next open
+(pitfall #16b).
 
 ---
 

@@ -106,12 +106,18 @@ clara-ve/checkbox  clara-ve/form-group  clara-ve/submit
 
 ```php
 add_action( 'init', function () {
-    if ( class_exists( 'Clara_VE_Form_Blocks' ) ) {
+    if ( class_exists( 'Clara_VE_Form_Blocks' )
+        || WP_Block_Type_Registry::get_instance()->is_registered( 'clara-ve/form' ) ) {
         return; // Visual Edit Lite owns these names; its versions win.
     }
     // …theme's own registration, identical attributes and save markup…
 }, 20 );
 ```
+
+The registry check is the one that holds: it asks whether the name is taken,
+not whether one particular class happens to be loaded, so a plugin build that
+registers the family from another file still wins — and the theme never trips
+`_doing_it_wrong` by registering a name twice.
 
 Same names mean one `post_content` works both ways: install the plugin later
 and the page stays valid; deactivate it and the theme keeps rendering the

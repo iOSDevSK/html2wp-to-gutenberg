@@ -9,14 +9,24 @@ permalinks, slug theft, invalid blocks) was findable only in WordPress.
 ## Tier 1 — files
 
 ```bash
-python3 <skill>/scripts/lint-delimiters.py <theme-dir>     # WP block grammar (+ --fix)
+python3 <skill>/scripts/lint-delimiters.py <theme-dir>     # WP block grammar + delimiter pairing (+ --fix)
 python3 <skill>/scripts/lint-html.py <theme-dir>           # tag balance inside block markup
 node ~/.claude/skills/wp-block-theme-converter/scripts/doctor.mjs <theme-dir>
 find <theme-dir> -name '*.php' | xargs -n1 php -l
 ```
 
-Also lint the content bundle (`content/**/*.html`) for balanced block
-comments — the theme doctor does not walk it.
+The two Python scripts walk `content/` as well as `parts/`, `templates/` and
+`patterns/`; the doctor does not, so the content bundle's delimiter pairing
+is theirs. Both exit 2 — not 0 — when the path is wrong or nothing was found:
+a green run over zero files is not a pass.
+
+**Expected noise from the doctor.** Its `lint-block-markup` reports every
+`style=` attribute it meets. Core blocks write some of those themselves —
+`core/spacer`'s height, `core/column`'s `flex-basis` — and the form contract
+puts `style="display:contents"` on an `inline` field (`forms-and-seo.md` §2).
+Those are not faults; do not strip them. A `style` attribute on a *design*
+element is one — that is the inline style `conversion-rules.md` turns into a
+utility class.
 
 ## Tier 2 — throwaway WordPress (SQLite, no server stack)
 
@@ -170,31 +180,6 @@ Adapt paths, don't rewrite the logic.
               ".map(c => c.className.slice(0,60) + ' ' + Math.round(c.getBoundingClientRect().width))")
    ```
 
-## The Gutenberg validity check, concretely
-
-Criterion 2 is the acceptance test the whole conversion is arranged around,
-and only Gutenberg can answer it — validity is decided by re-running each
-block's `save()` and comparing byte for byte, which no PHP can do. Drive a
-real browser:
-
-```python
-page.goto(f"{SITE}/wp-admin/post.php?post={page_id}&action=edit")
-page.wait_for_function(
-    "() => window.wp && wp.data && wp.data.select('core/block-editor')"
-    " && wp.data.select('core/block-editor').getBlocks().length > 0",
-    timeout=45000)
-report = page.evaluate("""() => {
-    const walk = (bs, o) => { bs.forEach(b => { o.total++;
-        if (b.isValid === false) o.invalid.push(b.name);
-        if (b.innerBlocks?.length) walk(b.innerBlocks, o); }); return o; };
-    return walk(wp.data.select('core/block-editor').getBlocks(), {total:0, invalid:[]});
-}""")
-```
-
-Run it over every page AND every post, not a sample: the reference finished
-at 1,025 blocks / 0 invalid, and the invalid ones cluster by block type, so
-one page of the wrong kind hides fifty faults.
-
 11. **If anything WRITES block markup — a script, an importer, an editor —
     the validity check is not enough on its own.** Three assertions have to
     ride with it, each one covering a failure the others miss:
@@ -230,6 +215,31 @@ one page of the wrong kind hides fifty faults.
 
     Run it against a database you have dumped first. It deletes real content,
     and a sandbox somebody is using for other work is not a fixture.
+
+## The Gutenberg validity check, concretely
+
+Criterion 2 is the acceptance test the whole conversion is arranged around,
+and only Gutenberg can answer it — validity is decided by re-running each
+block's `save()` and comparing byte for byte, which no PHP can do. Drive a
+real browser:
+
+```python
+page.goto(f"{SITE}/wp-admin/post.php?post={page_id}&action=edit")
+page.wait_for_function(
+    "() => window.wp && wp.data && wp.data.select('core/block-editor')"
+    " && wp.data.select('core/block-editor').getBlocks().length > 0",
+    timeout=45000)
+report = page.evaluate("""() => {
+    const walk = (bs, o) => { bs.forEach(b => { o.total++;
+        if (b.isValid === false) o.invalid.push(b.name);
+        if (b.innerBlocks?.length) walk(b.innerBlocks, o); }); return o; };
+    return walk(wp.data.select('core/block-editor').getBlocks(), {total:0, invalid:[]});
+}""")
+```
+
+Run it over every page AND every post, not a sample: the reference finished
+at 1,025 blocks / 0 invalid, and the invalid ones cluster by block type, so
+one page of the wrong kind hides fifty faults.
 
 ## A note on the SQLite sandbox
 

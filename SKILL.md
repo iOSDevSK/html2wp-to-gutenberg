@@ -304,11 +304,13 @@ site.** Assert the pages come back at their own addresses rather than as
 
 ### 9. Verify — files first, then a REAL WordPress (non-negotiable)
 
-File gates: `scripts/lint-delimiters.py`, `scripts/lint-html.py`, the
-wp-block-theme-converter doctor, `php -l`. **Then build the sandbox** —
-static harnesses agreed with the original at 0.56% while the real thing was
-26% out; every fault that mattered was found only in WordPress. Full recipe
-and the acceptance criteria: `references/verification.md`.
+File gates: `scripts/lint-delimiters.py` (grammar **and pairing** of every
+delimiter, `content/` included — the doctor never looks there),
+`scripts/lint-html.py`, the wp-block-theme-converter doctor, `php -l`.
+**Then build the sandbox** — static harnesses agreed with the original at
+0.56% while the real thing was 26% out; every fault that mattered was found
+only in WordPress. Full recipe and the acceptance criteria:
+`references/verification.md`.
 
 Acceptance: every page ≤ ~1% pixel diff against the original at 1440px and
 390px; **0 invalid blocks** when every page and post is opened in the block
