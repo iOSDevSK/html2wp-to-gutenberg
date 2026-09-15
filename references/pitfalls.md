@@ -48,7 +48,11 @@ reference by `scripts/editor-validity.py` — one placeholder with an
 ampersand, one invalid block, and nothing else on the site had a character
 that needed escaping, which is why it had never shown. `wp_slash()` the
 content on the way into every insert and update, exactly as #18 says for
-postmeta, and let `editor-validity.py` prove it.
+postmeta, and let `editor-validity.py` prove it. That fixes the next import
+only: a site already imported keeps its `u0026` for good, because the import
+never touches a page twice (#15). Ship the one-shot with the fix — the
+reference's `amanda_rose_blocks_repair_import_content()` rewrites, from the
+bundle, every flagged page nobody has edited since, and leaves the rest.
 
 ## 2. theme.json v3: core generates competing presets
 
@@ -194,7 +198,10 @@ Two consequences:
   says finished, the pages say otherwise.
 
 The kses allow-list is the tell: labels and buttons survive, controls do
-not. A form that arrives as labels with nothing between them is this.
+not. A form that arrives as labels with nothing between them is this. And a
+site that already imported this way keeps its empty forms until something
+rewrites the pages — the same one-shot repair as 1e, which is why the
+reference ships one repair for both.
 
 ## 6. Inline styles → utility classes need `!important`
 
