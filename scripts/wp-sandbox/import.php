@@ -1,4 +1,5 @@
 <?php
+// SPDX-License-Identifier: GPL-2.0-or-later
 // Developer tool, not part of any theme. Runs the theme's synchronous
 // whole-import function (SKILL.md step 8) — the CLI path — and prints what
 // the site holds afterwards. The sliced admin-ajax path is exercised over

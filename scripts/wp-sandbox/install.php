@@ -1,4 +1,5 @@
 <?php
+// SPDX-License-Identifier: GPL-2.0-or-later
 // Developer tool, not part of any theme. Run from the command line by setup.sh:
 //   WP_ROOT=<sandbox>/wordpress THEME_SLUG=<slug> [SITE_TITLE=…] [ADMIN_PASSWORD=…] php install.php
 if ( PHP_SAPI !== 'cli' ) { exit( 1 ); }

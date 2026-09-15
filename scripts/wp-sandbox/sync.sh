@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Copy the theme into the sandbox. A copy rather than a symlink: WordPress
 # resolves theme paths in ways that make a symlinked theme unreliable.
 #

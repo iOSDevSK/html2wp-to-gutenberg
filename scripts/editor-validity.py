@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Open every page and post in the block editor and count invalid blocks.
 
 This is the acceptance test the whole conversion is arranged around, and only

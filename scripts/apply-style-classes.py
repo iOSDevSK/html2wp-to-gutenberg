@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Carry the source's inline styles across as utility classes (pitfall #6).
 
 The static build wrote one-off declarations straight onto elements. Block

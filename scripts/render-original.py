@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Render the ORIGINAL html2wp site to standalone HTML, for comparison.
 
 The source pages in the input theme's bundle are fragments: no head, no

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Check every block delimiter against WordPress's own grammar, then check
 that the delimiters pair up.
 

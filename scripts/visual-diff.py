@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Screenshot the original and converted pages side by side and diff them.
 
 This is the check that matches what the conversion actually promised: not that

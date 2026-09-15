@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Build a throwaway WordPress with a theme installed, on SQLite, no server
 # software required beyond PHP. Everything lands in the sandbox directory,
 # which is created BESIDE the theme, never inside it — a WordPress inside the

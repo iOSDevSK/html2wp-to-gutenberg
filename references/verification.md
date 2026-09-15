@@ -269,7 +269,7 @@ report = page.evaluate("""() => {
 ```
 
 Run it over every page AND every post, not a sample: the reference finished
-at 1,025 blocks / 0 invalid, and the invalid ones cluster by block type, so
+at 1,303 blocks / 0 invalid, and the invalid ones cluster by block type, so
 one page of the wrong kind hides fifty faults.
 
 ## A note on the SQLite sandbox

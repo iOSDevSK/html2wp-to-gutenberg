@@ -8,14 +8,14 @@ description: >
   post_content — editable in the standard block editor with no plugin.
   This is the method proven on the Amanda Rose conversion
   (github.com/iOSDevSK/amanda-rose-guttenberg): final result 15 pages within
-  0.4% pixel diff of the original against a REAL WordPress, 1,025 blocks /
+  0.4% pixel diff of the original against a REAL WordPress, 1,303 blocks /
   0 invalid in the editor. Trigger when the user asks to "preklop tému do
   Gutenbergu", "convert my html2wp theme to native blocks", "make the theme
   editable without Visual Edit", "gutenberg verzia témy", "1:1 like amanda
   rose", or names this skill. Do NOT use for plain static HTML folders
   (that's wp-block-theme-converter or html2wp-sub) — this skill's input is
   specifically a theme the html2wp converter already produced.
-license: MIT
+license: GPL-2.0-or-later
 compatibility: >
   WordPress 6.6+ (theme.json v3) and PHP 7.4+ for the theme it produces. On the converting machine: PHP CLI with sqlite3 and gd, Python 3 with playwright, numpy and Pillow (scripts/requirements.txt) plus Chromium, node for the wp-block-theme-converter doctor, rsync, curl, unzip. Visual Edit Lite 1.27+ for the two-sided form and SEO gates.
 ---
@@ -389,7 +389,7 @@ green.
 `github.com/iOSDevSK/amanda-rose-guttenberg` (private) — the complete worked
 example: `steps/` is the conversion record (16 notes); `tools/` is where
 this skill's `scripts/` came from, with the Amanda Rose values filled in;
-`tests/` holds the five regression files verification.md asks every theme to
+`tests/` holds the regression files verification.md asks every theme to
 ship. When in doubt, read how that repo did it.
 Forms and search metadata are the part to read at version **2.4.1 or later** —
 `inc/form-blocks.php`, `inc/seo.php` and `steps/14-forms-blocks-seo.md` are the
