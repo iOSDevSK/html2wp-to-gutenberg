@@ -16,6 +16,8 @@ description: >
   (that's wp-block-theme-converter or html2wp-sub) — this skill's input is
   specifically a theme the html2wp converter already produced.
 license: MIT
+compatibility: >
+  WordPress 6.6+ (theme.json v3) and PHP 7.4+ for the theme it produces. On the converting machine: PHP CLI with sqlite3 and gd, Python 3 with playwright, numpy and Pillow (scripts/requirements.txt) plus Chromium, node for the wp-block-theme-converter doctor, rsync, curl, unzip. Visual Edit Lite 1.27+ for the two-sided form and SEO gates.
 ---
 
 # html2wp theme → native Gutenberg block theme, 1:1
@@ -51,6 +53,29 @@ could not edit it.
 of element.** Blocks are the vehicle; the classes are the design. The
 original `site.css` is carried over almost verbatim and remains the source of
 truth for appearance. Full mapping rules: `references/conversion-rules.md`.
+
+## Inputs required
+
+- **The html2wp theme directory** — `clara-content/` with `sources/`,
+  `posts.json`, `terms.json`, `redirects.json`; `parts/`, `templates/`,
+  `theme.json`, `inc/`, `assets/`. No `clara-content/` means this is not an
+  html2wp theme and the wrong skill (see the description).
+- **The new theme's slug and text domain**, and where the sibling directory
+  goes. The slug is the directory name; the sandbox, the importer's flag and
+  the shortcode namespace all derive from it.
+- **What the original looked like.** The html2wp theme's own `site.css`,
+  `site.js` and sources are what `scripts/render-original.py` composes into
+  the comparison baseline; a live URL of the old site, if one exists, settles
+  arguments the render cannot.
+- **Which plugins the source site used.** Contact Form 7 changes the form
+  path (pitfall #10). Visual Edit Lite 1.27+ has to be at hand for the
+  two-sided form and SEO gates (verification.md, criteria 7–8), and its
+  `includes/class-form-blocks.php` is what the theme carries a copy of.
+- **Tooling** — the `compatibility` line above; `scripts/requirements.txt`
+  names the Python side. Without Playwright there is no tier 2, and without
+  tier 2 there is no acceptance (step 9).
+- **A dump of any database the gates will reuse.** The cleanup gate deletes
+  content; a sandbox somebody is using for other work is not a fixture.
 
 ## Workflow
 
@@ -94,9 +119,9 @@ with their `unicodeRange`, preload the two above-the-fold cuts via
 - Inline styles from the source become **utility classes marked
   `!important`** — the only `!important` in the file, justified: they replace
   style attributes, which outranked everything by definition (pitfall #6).
-- Run `raise-specificity` (`:root ` prefix on every selector; see the
-  reference repo's `tools/raise-specificity.py`) so the design consistently
-  beats core's `:root :where(.is-layout-flow)` layout resets (pitfall #3).
+- Run `scripts/raise-specificity.py <site.css> --write` (`:root ` prefix on
+  every selector, idempotent) so the design consistently beats core's
+  `:root :where(.is-layout-flow)` layout resets (pitfall #3).
 - `editor.css` = load `site.css` itself into the editor plus a short
   corrections file (unfix the nav, unhide overlays, cap viewport-height
   sections). Reveal animations gated on `html.js` are inert in the canvas —
@@ -184,7 +209,8 @@ Write a per-project `CONVERSION-GUIDE.md` from
 family (editorial / forms / galleries / utility / posts). Each agent reports
 an ordered section list and `UNMAPPED STYLE:` lines for any inline style not
 in the mapping table — collect those into utility classes in ONE pass
-afterwards using a **reconciling matcher keyed on class-set + ordinal**
+afterwards with `scripts/apply-style-classes.py`, fed the project's own
+style→class map — a **reconciling matcher keyed on class-set + ordinal**
 (first-match placement drifts; the reference caught 19 misplacements that
 way). Forms become the `clara-ve/*` block family — a field per field, so the
 client can rename a label or add a choice without touching markup; the rules
@@ -199,7 +225,9 @@ descriptions, pages (claim-slug guard, template assignment, SEO meta into
 settings (**`$wp_rewrite->set_permalink_structure()`, not `update_option`**,
 pitfall #5), trash untouched sample content (pitfall #8). `bind_media()` rewrites image URLs to attachments
 and injects the `id` attr + `wp-image-N` class — and nothing else
-(pitfall #1c).
+(pitfall #1c). Everything handed to `wp_insert_post()` goes through
+`wp_slash()` first, or the `\u0026` a serialized attribute carries loses its
+backslash and the block opens invalid (pitfall #1e).
 
 **The import must not be one request, and it must be visible.** Resizing
 sixty-five photographs takes minutes on real hosting; every host kills the
@@ -225,7 +253,10 @@ and pitfall **#5b** has the measurements:
 
 Keep the synchronous whole-import function: it is the CLI path and the no-JS
 fallback, and the slices wrap the same stage functions rather than forking
-them. **A `rebind` stage is part of the machine, not an extra** (pitfall #5c):
+them. It must not depend on who calls it: kses strips every form control out
+of `post_content` for a caller without `unfiltered_html`, and the command
+line has no user — wrap the inserts in `kses_remove_filters()` or refuse to
+run (pitfall #5d). **A `rebind` stage is part of the machine, not an extra** (pitfall #5c):
 without it, fixing the importer fixes future conversions and does nothing for
 the site that reported the bug.
 
@@ -307,14 +338,16 @@ site.** Assert the pages come back at their own addresses rather than as
 File gates: `scripts/lint-delimiters.py` (grammar **and pairing** of every
 delimiter, `content/` included — the doctor never looks there),
 `scripts/lint-html.py`, the wp-block-theme-converter doctor, `php -l`.
-**Then build the sandbox** — static harnesses agreed with the original at
-0.56% while the real thing was 26% out; every fault that mattered was found
-only in WordPress. Full recipe and the acceptance criteria:
+**Then build the sandbox** (`scripts/wp-sandbox/setup.sh`) — static
+harnesses agreed with the original at 0.56% while the real thing was 26%
+out; every fault that mattered was found only in WordPress. The harness is
+in `scripts/`; the recipe and the acceptance criteria are in
 `references/verification.md`.
 
 Acceptance: every page ≤ ~1% pixel diff against the original at 1440px and
 390px; **0 invalid blocks** when every page and post is opened in the block
-editor (walk `wp.data.select('core/block-editor')`, don't eyeball) — and
+editor (`scripts/editor-validity.py` walks
+`wp.data.select('core/block-editor')`; don't eyeball) — and
 again with Visual Edit Lite activated, which registers the same form blocks;
 every form sends and every field is editable in the editor; a description
 typed into the editor's SEO panel reaches the page source, once; all original
@@ -329,12 +362,35 @@ reference two real defects lived there — every template previewing as the
 same expanded menu, and nine broken images — while every check above was
 green.
 
+## Escalation — when to stop and ask
+
+- **The input is not an html2wp theme** — no `clara-content/`, a different
+  token family, no `[wp-*]` tokens. Say so and route to
+  wp-block-theme-converter or html2wp-sub; do not improvise a converter.
+- **A page stays above the visual threshold** after `scripts/measure-diff.py`
+  has named the element and two rounds of bridge CSS. Show the diff images
+  and the moved boxes; do not "fix" it by changing the design's own rules —
+  the design is the specification.
+- **Something the source does that core blocks cannot hold** without a
+  `style` attribute, a span inside RichText or markup the editor would strip.
+  Report it as `UNMAPPED` (conversion-rules.md); a custom block is a decision
+  the owner makes, not a default.
+- **Visual Edit Lite is unavailable or older than 1.27.** Criteria 7 and 8
+  cannot run; say which gates were skipped instead of marking them passed.
+- **A failure that reproduces only in the SQLite sandbox.** Try the MariaDB
+  container in verification.md before concluding anything; if it reproduces
+  there too, it is real.
+- **Anything destructive on a site you did not just install** — the cleanup
+  of step 8b, trashing sample content, permalink changes. Those need the
+  owner's typed confirmation, not an agent's.
+
 ## Reference implementation
 
 `github.com/iOSDevSK/amanda-rose-guttenberg` (private) — the complete worked
-example: `steps/` is the conversion record (16 notes), `tools/` has the full
-harness set (visual-diff, measure-diff, render harnesses, apply-style-classes,
-raise-specificity, wp-sandbox). When in doubt, read how that repo did it.
+example: `steps/` is the conversion record (16 notes); `tools/` is where
+this skill's `scripts/` came from, with the Amanda Rose values filled in;
+`tests/` holds the five regression files verification.md asks every theme to
+ship. When in doubt, read how that repo did it.
 Forms and search metadata are the part to read at version **2.4.1 or later** —
 `inc/form-blocks.php`, `inc/seo.php` and `steps/14-forms-blocks-seo.md` are the
 worked example of `references/forms-and-seo.md`. Everything it shipped before

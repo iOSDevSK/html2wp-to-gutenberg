@@ -13,7 +13,10 @@ thing, and every following block nests one level deeper. Symptom on the
 reference: a page quietly wrapped its entire remaining document inside a
 sticky form panel and rendered 4,794px too tall — while every comment-balance
 and HTML-balance check stayed green. LLM agents writing block markup produced
-19 of these across 15 pages (~1.5% of delimiters). **Run
+19 of these across 15 pages (~1.5% of delimiters), and a script can do it
+too — the reference's class reconciler rebuilt every opener it touched as
+`{…}-->`; the vendored `scripts/apply-style-classes.py` writes the space,
+and the linter runs after it regardless. **Run
 `scripts/lint-delimiters.py` on everything generated; it also `--fix`es.**
 
 ### 1b. HTML comments inside block containers
@@ -33,6 +36,20 @@ is owned by the design's aspect-ratio frames. Same reason: never inject
 `<span class="ind">+</span>` in a summary, numbering spans in nav labels —
 gone on first edit. Decorative glyphs move to CSS (`::after`, counters).
 
+### 1e. `wp_insert_post()` eats the backslashes the serializer wrote
+Serialized attributes escape `&`, `<`, `>`, `"` and `--` as `\u0026`,
+`\u003c`, … — that is what `serialize_block_attributes()` writes and what
+the editor expects to read back. `wp_insert_post()` and `wp_update_post()`
+take **slashed** data and `wp_unslash()` it before the write, so
+`post_content` handed over as-is lands with `u0026` where `\u0026` was: the
+attribute now says "Fern u0026 Callum", the saved HTML still says
+`Fern &amp; Callum`, and the block is invalid on first open. Found on the
+reference by `scripts/editor-validity.py` — one placeholder with an
+ampersand, one invalid block, and nothing else on the site had a character
+that needed escaping, which is why it had never shown. `wp_slash()` the
+content on the way into every insert and update, exactly as #18 says for
+postmeta, and let `editor-validity.py` prove it.
+
 ## 2. theme.json v3: core generates competing presets
 
 Without `settings.spacing.defaultSpacingSizes: false` and
@@ -50,9 +67,10 @@ child variants) weighs one–two classes — the same as most design selectors �
 and print order varies. Margins vanish unpredictably (the reference lost the
 article sheet's top margin, card figure margins, signup margins). Two-part
 fix: enqueue the design CSS with `array('wp-block-library','global-styles')`
-as deps, AND prefix every selector with `:root ` (scripted; skip `:root`/
-`html` selectors and `@keyframes` bodies; flush standalone comments before
-prefixing or the prefix lands on them).
+as deps, AND prefix every selector with `:root ` —
+`scripts/raise-specificity.py`, which skips `:root`/`html` selectors and
+`@keyframes` bodies and flushes standalone comments before prefixing, or the
+prefix lands on them.
 
 ## 4. Attachments steal page slugs
 
@@ -149,6 +167,35 @@ flagged posts whose content still contains the placeholder and re-runs
 This is the difference between "fixed in the next conversion" and "fixed on
 the site that reported it".
 
+### 5d. The command line has no user, and kses is filtering
+
+`wp_insert_post()` runs `post_content` through kses unless the current user
+can `unfiltered_html`. On the command line there is no current user, so a
+CLI-driven import — a sandbox script, a WP-CLI command, a cron — silently
+drops every `<form>`, `<input>`, `<select>` and `<option>` the bundle
+contains, strips the attributes it does not know off a `<textarea>`, keeps
+the `<label>`s and `<button>`s, and reports success. Measured on the
+reference through this skill's harness: 14 invalid form blocks in the editor
+and a contact page 115px short, while the admin-screen import of the same
+bundle was perfect — an administrator can `unfiltered_html`, so kses stands
+down for them.
+
+Two consequences:
+
+- **The sandbox imports as the administrator.**
+  `scripts/wp-sandbox/import.php` calls `wp_set_current_user( 1 )` first —
+  that fires `kses_init()` again, which removes the filters for a user who
+  may — and refuses to run if the user still cannot `unfiltered_html`.
+- **The theme's own CLI path must not depend on the caller.** Wrap the
+  inserts in `kses_remove_filters()` / `kses_init_filters()`, or check
+  `current_user_can( 'unfiltered_html' )` at the top of the synchronous
+  import and stop with a message. A whole-import function that behaves
+  differently from the admin screen is 5b in another costume: the record
+  says finished, the pages say otherwise.
+
+The kses allow-list is the tell: labels and buttons survive, controls do
+not. A form that arrives as labels with nothing between them is this.
+
 ## 6. Inline styles → utility classes need `!important`
 
 A style attribute outranks every stylesheet rule by definition. Its
@@ -158,7 +205,7 @@ classes (and only them) `!important`, with a comment saying why.
 
 Placement needs a **reconciling matcher keyed on exact class-set + ordinal**
 ("the 3rd element whose classes are exactly {h-lg}"), run repeatedly to a
-fixed point. Contains-matching drifted 19 placements on the reference.
+fixed point — `scripts/apply-style-classes.py`. Contains-matching drifted 19 placements on the reference.
 Elements styled but class-less in the source are invisible to the matcher —
 they must be listed and handled by hand.
 

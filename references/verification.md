@@ -30,24 +30,51 @@ utility class.
 
 ## Tier 2 — throwaway WordPress (SQLite, no server stack)
 
-The reference ships a complete, reusable harness —
-`github.com/iOSDevSK/amanda-rose-guttenberg`, directory `tools/`:
+The harness is in this skill's `scripts/` (see `scripts/README.md`),
+vendored from the reference conversion with every project-specific value
+turned into an argument:
+
+```bash
+S=<skill>/scripts
+# 1. a WordPress beside the theme — the theme rsynced in, installed, imported
+IMPORT_FUNCTION=<slug>_run_import bash $S/wp-sandbox/setup.sh <theme-dir>
+PHP_CLI_SERVER_WORKERS=8 php -S 127.0.0.1:8899 -t <theme-dir>/../<slug>-sandbox/wordpress &
+# 2. the original, composed the way the old runtime composed it
+python3 $S/render-original.py --example > render-original.json      # fill in, then:
+python3 $S/render-original.py --config render-original.json
+# 3. the gates
+python3 $S/editor-validity.py --site http://127.0.0.1:8899 --user admin --password admin-password
+python3 $S/visual-diff.py  --original preview-original --live http://127.0.0.1:8899
+python3 $S/visual-diff.py  --original preview-original --live http://127.0.0.1:8899 --width 390
+python3 $S/measure-diff.py --original preview-original --live http://127.0.0.1:8899 \
+    --css <theme>/assets/css/site.css <the page that diffed>
+```
 
 - `wp-sandbox/setup.sh` — downloads WP + the sqlite-database-integration
-  drop-in (fix its `{SQLITE_IMPLEMENTATION_FOLDER_PATH}` placeholder with a
-  plain path string), writes wp-config (`DISABLE_WP_CRON` on), installs,
-  rsyncs the theme in, runs the importer. Build it **outside** the theme dir.
-- `visual-diff.py --live http://127.0.0.1:8899` — Playwright screenshots of
-  every page against the rendered ORIGINAL sources, with the determinism
-  fixes baked in: `reduced_motion` context, `loading=eager` + `img.decode()`
-  + `fonts.ready` before capture, `srcset`/`sizes` stripped on both sides.
-  Serve with `PHP_CLI_SERVER_WORKERS=8` or the editor checks time out.
+  drop-in (fixing its `{SQLITE_IMPLEMENTATION_FOLDER_PATH}` placeholder with
+  a plain path string), writes wp-config (`DISABLE_WP_CRON` on, debug log
+  on), installs, rsyncs the theme in, runs the importer named in
+  `IMPORT_FUNCTION`. Builds **outside** the theme dir and refuses to do
+  otherwise; `sync.sh` pushes theme changes in again.
+- `render-original.py` — composes the html2wp sources with the old
+  header/footer parts, expands `[wp-posts]` from the converted theme's
+  `posts.json`, rewrites the `__CLARA_*` tokens to the old theme's files,
+  strips `srcset`/`sizes`. Everything project-specific is in its JSON config.
+- `visual-diff.py --live` — Playwright screenshots of every page against the
+  rendered original, with the determinism fixes baked in: `reduced_motion`
+  context, `loading=eager` + `img.decode()` + `fonts.ready` before capture,
+  `srcset`/`sizes` stripped on both sides. Exit 1 at or above `--threshold`
+  (1%). Serve with `PHP_CLI_SERVER_WORKERS=8` or the editor checks time out.
 - `measure-diff.py` — when a page diffs, this names the element: reads
   `getBoundingClientRect` for every design class in both documents and
   prints the boxes that moved. This is the debugging tool; the pixel diff is
   only the alarm.
+- `editor-validity.py` — criterion 2, below: logs in, lists every page and
+  post through REST, opens each in the editor, walks the data store.
 
-Adapt paths, don't rewrite the logic.
+The reference's own copies — `github.com/iOSDevSK/amanda-rose-guttenberg`,
+`tools/` — are the same logic with the Amanda Rose values filled in; read
+them when a script's intent is unclear.
 
 ## Acceptance criteria (all of them)
 
@@ -124,6 +151,9 @@ Adapt paths, don't rewrite the logic.
    - submit the form on the front end and assert the mail is attempted and
      the redirect or the message happens. A form with `data-demo` or no
      `action` is a fail, whatever it looks like;
+   - after a CLI import, the stored `post_content` of every form page still
+     contains `<form` and `<input` — kses on a user-less request drops them
+     and says nothing (pitfall #5d);
    - then activate Visual Edit Lite 1.27 or later — which registers the same
      `clara-ve/*` names — reload every form page in the editor and assert
      **0 invalid blocks**;
@@ -220,8 +250,9 @@ Adapt paths, don't rewrite the logic.
 
 Criterion 2 is the acceptance test the whole conversion is arranged around,
 and only Gutenberg can answer it — validity is decided by re-running each
-block's `save()` and comparing byte for byte, which no PHP can do. Drive a
-real browser:
+block's `save()` and comparing byte for byte, which no PHP can do.
+`scripts/editor-validity.py` does exactly this over every page and post;
+the heart of it:
 
 ```python
 page.goto(f"{SITE}/wp-admin/post.php?post={page_id}&action=edit")
