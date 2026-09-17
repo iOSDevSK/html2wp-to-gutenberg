@@ -71,9 +71,22 @@ truth for appearance. Full mapping rules: `references/conversion-rules.md`.
   path (pitfall #10). Visual Edit Lite 1.27+ has to be at hand for the
   two-sided form and SEO gates (verification.md, criteria 7–8), and its
   `includes/class-form-blocks.php` is what the theme carries a copy of.
-- **Tooling** — the `compatibility` line above; `scripts/requirements.txt`
-  names the Python side. Without Playwright there is no tier 2, and without
-  tier 2 there is no acceptance (step 9).
+- **Tooling** — do not take this on trust, ask the machine:
+
+  ```bash
+  bash scripts/doctor.sh          # reads only; exit 0 means it can start
+  bash scripts/install.sh         # shows what it would install
+  bash scripts/install.sh --yes   # installs it
+  ```
+
+  Run the doctor BEFORE step 1, not when something fails. Without Playwright
+  there is no tier 2, and without tier 2 there is no acceptance (step 9) — a
+  run that finds this out at step 9 has done eight steps of work it cannot
+  close. The doctor checks PHP with sqlite3 and gd, WP-CLI, the three Python
+  packages in `scripts/requirements.txt`, the Chromium that Playwright
+  downloads separately from itself, node, rsync, curl, unzip, and Visual Edit
+  Lite. `install.sh` is a dry run until `--yes`, installs nothing already
+  present, and is harmless to run twice.
 - **A dump of any database the gates will reuse.** The cleanup gate deletes
   content; a sandbox somebody is using for other work is not a fixture.
 
