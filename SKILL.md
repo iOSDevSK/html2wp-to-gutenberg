@@ -265,6 +265,18 @@ and the saved-markup contract are in `references/forms-and-seo.md`.
 
 ### 8. Importer + setup screen
 
+**The scaffold ships the smallest importer that makes the ZIP testable.**
+`scaffold-theme.py` writes `inc/import.php`: one admin notice with one
+button (and a function `wp eval` calls, so the gates run the owner's path),
+creating every page in `content/pages.json` — images resolved from the
+`__THEME_URI__` token to the theme's own files, `wp_slash()` (#1e),
+`kses_remove_filters()` (#5d), the front page and, only when permalinks are
+plain, `/%postname%/` set, the site options snapshotted once, every page
+flagged, and a page at an address the theme did not create left alone. It is
+synchronous because it moves no media. Everything below — media into the
+library, posts, menus, the sliced state machine — is what a real site needs
+on top of it.
+
 One admin page, one idempotent import: media (**slug-namespace the
 attachments**, pitfall #4), categories with the topic pages' intros as
 descriptions, pages (claim-slug guard, template assignment, SEO meta into

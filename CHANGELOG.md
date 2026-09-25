@@ -4,6 +4,7 @@ By commit, newest first. The subjects are the log's own; the body of each commit
 
 ## Unreleased
 
+- Official blocks, per phase (branch `feat/official-blocks`, tags `v1.1.0-phase.N`): the design's tokens as theme.json presets that the blocks use (phase 1), core layout for the groups core can lay out (phase 2), the class residue measured by `block-metrics.py`; the scaffold ships a pages-only importer, so every phase is a ZIP an owner can install.
 - Documentation for people (`README.md`, `docs/`, `CONTRIBUTING.md`, this file); licence changed from MIT to GPL-2.0-or-later so what the skill carries into a theme stays compatible with WordPress; `1,303 blocks / 0 invalid` recorded where the description and verification.md still said 1,025.
 
 ## 2026-09-15

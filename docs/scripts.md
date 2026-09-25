@@ -294,8 +294,8 @@ The sibling block theme, scaffolded the way an official one is laid out.
     python3 scaffold-theme.py --old <html2wp-theme> --tokens tokens.json \
         --out <new-theme> --slug mara-vidal-blocks --name "Mara Vidal Blocks" \
         --css assets/styles.css [--js assets/spa-runtime.js] [--fonts-url URL] \
-        [--media-url http://site/wp-content/themes/<slug>/assets/images] [--presets on|off] \
-        [--layout on|off] [--author NAME] [--chrome front-page]
+        [--media-url __THEME_URI__/assets/images] [--presets on|off] [--layout on|off] \
+        [--author NAME] [--version 2.0.0] [--chrome front-page]
 
 What it writes (SKILL.md steps 2, 4, 6; convert-source.py does the pages):
 
@@ -308,7 +308,15 @@ What it writes (SKILL.md steps 2, 4, 6; convert-source.py does the pages):
                  its own classes) around the header part, a <main> group, the
                  post content and the footer part
   parts/         header and footer, converted from the source's own chrome
-  content/       every page source as block markup (convert-source.py)
+  content/       every page source as block markup (convert-source.py), and
+                 pages.json: each page's key, address and title
+  inc/import.php the importer: an admin notice with one button (and a
+                 function wp eval can call) that creates the pages — images
+                 resolved from the __THEME_URI__ token, the front page and
+                 pretty permalinks set, every page flagged so a re-import
+                 updates its own and never an owner's
+  <out>.reports/ beside the theme, not in it: convert-source.py's per-page
+                 report (every class kept, and why)
   assets/        the design's stylesheet UNLAYERED and raised by one :root
                  (pitfall #3: core's layout rules are unlayered, so a layered
                  utility loses to them whatever its specificity), its :root

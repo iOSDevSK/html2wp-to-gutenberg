@@ -5,8 +5,8 @@
     python3 scaffold-theme.py --old <html2wp-theme> --tokens tokens.json \\
         --out <new-theme> --slug mara-vidal-blocks --name "Mara Vidal Blocks" \\
         --css assets/styles.css [--js assets/spa-runtime.js] [--fonts-url URL] \\
-        [--media-url http://site/wp-content/themes/<slug>/assets/images] [--presets on|off] \\
-        [--layout on|off] [--author NAME] [--chrome front-page]
+        [--media-url __THEME_URI__/assets/images] [--presets on|off] [--layout on|off] \\
+        [--author NAME] [--version 2.0.0] [--chrome front-page]
 
 What it writes (SKILL.md steps 2, 4, 6; convert-source.py does the pages):
 
@@ -19,7 +19,15 @@ What it writes (SKILL.md steps 2, 4, 6; convert-source.py does the pages):
                  its own classes) around the header part, a <main> group, the
                  post content and the footer part
   parts/         header and footer, converted from the source's own chrome
-  content/       every page source as block markup (convert-source.py)
+  content/       every page source as block markup (convert-source.py), and
+                 pages.json: each page's key, address and title
+  inc/import.php the importer: an admin notice with one button (and a
+                 function wp eval can call) that creates the pages — images
+                 resolved from the __THEME_URI__ token, the front page and
+                 pretty permalinks set, every page flagged so a re-import
+                 updates its own and never an owner's
+  <out>.reports/ beside the theme, not in it: convert-source.py's per-page
+                 report (every class kept, and why)
   assets/        the design's stylesheet UNLAYERED and raised by one :root
                  (pitfall #3: core's layout rules are unlayered, so a layered
                  utility loses to them whatever its specificity), its :root
@@ -128,6 +136,168 @@ BRIDGE = """/* Block bridge — only what core's own wrappers change (SKILL.md s
 :root :where(.wp-block-post-content,.wp-site-blocks){margin:0}
 """
 
+IMPORT_PHP = """<?php
+/**
+ * The pages this theme ships, imported on request (SKILL.md step 8, its
+ * synchronous core): content/pages.json names them, content/<key>.html holds
+ * each one's block markup. Pages only — the images stay theme files, so the
+ * whole import is one short request.
+ *
+ * Every page it creates carries the flag below, so a second import updates
+ * its own pages and never an owner's; the reading and permalink settings it
+ * claims are recorded once, before the first claim.
+ *
+ * @package __PKG__
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+const __UPREFIX___IMPORT_FLAG = '___PREFIX___imported';
+
+/**
+ * Import (or re-import) the shipped pages.
+ *
+ * @return array|WP_Error Counts, and every page left alone with the reason.
+ */
+function __PREFIX___import_pages() {
+	$dir   = get_template_directory() . '/content';
+	$pages = wp_json_file_decode( $dir . '/pages.json', array( 'associative' => true ) );
+	if ( ! is_array( $pages ) ) {
+		return new WP_Error( '__PREFIX___no_pages', __( 'The theme has no content/pages.json.', '__SLUG__' ) );
+	}
+	$state = get_option( '__PREFIX___import', array() );
+	if ( ! isset( $state['site_options_before'] ) ) {
+		$state['site_options_before'] = array(
+			'show_on_front'       => get_option( 'show_on_front' ),
+			'page_on_front'       => get_option( 'page_on_front' ),
+			'permalink_structure' => get_option( 'permalink_structure' ),
+		);
+	}
+	// The markup carries form controls and inline SVG in core/html blocks;
+	// kses would strip them for a user without unfiltered_html, and the
+	// command line has no user at all (pitfall #5d).
+	kses_remove_filters();
+	$uri    = get_template_directory_uri();
+	$result = array(
+		'created' => 0,
+		'updated' => 0,
+		'skipped' => array(),
+	);
+	$front  = 0;
+	foreach ( $pages as $page ) {
+		$file = $dir . '/' . basename( $page['key'] ) . '.html';
+		if ( ! is_readable( $file ) ) {
+			$result['skipped'][ $page['slug'] ] = __( 'its file is missing from the theme', '__SLUG__' );
+			continue;
+		}
+		$content  = str_replace( '__THEME_URI__', $uri, (string) file_get_contents( $file ) );
+		$existing = get_page_by_path( $page['slug'], OBJECT, 'page' );
+		$args     = array(
+			'post_type'    => 'page',
+			'post_status'  => 'publish',
+			'post_title'   => $page['title'],
+			'post_name'    => $page['slug'],
+			'post_content' => $content,
+		);
+		if ( $existing && ! get_post_meta( $existing->ID, __UPREFIX___IMPORT_FLAG, true ) ) {
+			$result['skipped'][ $page['slug'] ] = __( 'the address belongs to a page this theme did not create', '__SLUG__' );
+			continue;
+		}
+		if ( $existing ) {
+			$args['ID'] = $existing->ID;
+			$id         = wp_update_post( wp_slash( $args ), true );
+			$key        = 'updated';
+		} else {
+			$id  = wp_insert_post( wp_slash( $args ), true );
+			$key = 'created';
+		}
+		if ( is_wp_error( $id ) ) {
+			$result['skipped'][ $page['slug'] ] = $id->get_error_message();
+			continue;
+		}
+		update_post_meta( $id, __UPREFIX___IMPORT_FLAG, 1 );
+		++$result[ $key ];
+		if ( ! empty( $page['front'] ) ) {
+			$front = $id;
+		}
+	}
+	kses_init();
+	if ( $front ) {
+		update_option( 'show_on_front', 'page' );
+		update_option( 'page_on_front', $front );
+	}
+	// The pages link to each other as /about/: plain permalinks would 404
+	// every one of them. Any other structure already serves pages there.
+	if ( '' === get_option( 'permalink_structure' ) ) {
+		global $wp_rewrite;
+		$wp_rewrite->set_permalink_structure( '/%postname%/' );
+		flush_rewrite_rules( false );
+	}
+	$state['imported'] = time();
+	$state['result']   = $result;
+	update_option( '__PREFIX___import', $state, false );
+	return $result;
+}
+
+add_action(
+	'admin_post___PREFIX___import',
+	static function () {
+		if ( ! current_user_can( 'manage_options' ) || ! current_user_can( 'edit_pages' ) ) {
+			wp_die( esc_html__( 'You are not allowed to import pages.', '__SLUG__' ) );
+		}
+		check_admin_referer( '__PREFIX___import' );
+		$result = __PREFIX___import_pages();
+		set_transient( '__PREFIX___import_notice', $result, 60 );
+		wp_safe_redirect( admin_url( 'themes.php' ) );
+		exit;
+	}
+);
+
+add_action(
+	'admin_notices',
+	static function () {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		$done = get_transient( '__PREFIX___import_notice' );
+		if ( false !== $done ) {
+			delete_transient( '__PREFIX___import_notice' );
+			if ( is_wp_error( $done ) ) {
+				printf( '<div class="notice notice-error"><p>%s</p></div>', esc_html( $done->get_error_message() ) );
+				return;
+			}
+			$lines = array();
+			foreach ( $done['skipped'] as $slug => $why ) {
+				/* translators: 1: page address, 2: reason */
+				$lines[] = sprintf( esc_html__( '/%1$s/ was left alone: %2$s.', '__SLUG__' ), esc_html( $slug ), esc_html( $why ) );
+			}
+			$total = $done['created'] + $done['updated'];
+			printf(
+				'<div class="notice %1$s"><p>%2$s</p>%3$s</div>',
+				$total ? 'notice-success' : 'notice-error',
+				/* translators: 1: pages created, 2: pages updated */
+				esc_html( sprintf( __( '__NAME__: %1$d pages created, %2$d updated.', '__SLUG__' ), $done['created'], $done['updated'] ) ),
+				$lines ? '<p>' . implode( '<br>', $lines ) . '</p>' : ''
+			);
+			return;
+		}
+		$state = get_option( '__PREFIX___import', array() );
+		if ( ! empty( $state['imported'] ) ) {
+			return;
+		}
+		printf(
+			'<div class="notice notice-info"><p>%1$s</p><form method="post" action="%2$s"><input type="hidden" name="action" value="__PREFIX___import">%3$s<p><button class="button button-primary">%4$s</button></p></form></div>',
+			/* translators: %d: number of pages */
+			esc_html( sprintf( __( '__NAME__ ships %d pages. Import them to see the site as it was designed; the front page and pretty permalinks are set too.', '__SLUG__' ), __COUNT__ ) ),
+			esc_url( admin_url( 'admin-post.php' ) ),
+			wp_nonce_field( '__PREFIX___import', '_wpnonce', true, false ),
+			esc_html__( 'Import the pages', '__SLUG__' )
+		);
+	}
+);
+"""
+
+
 FUNCTIONS = """<?php
 /**
  * {name} — a block theme: the design lives in theme.json, the blocks use it.
@@ -140,6 +310,8 @@ defined( 'ABSPATH' ) || exit;
 // The text is the source's, character for character: WordPress would curl
 // its straight quotes and dashes, which the original never did.
 add_filter( 'run_wptexturize', '__return_false' );
+
+require_once __DIR__ . '/inc/import.php';
 
 add_action(
 	'after_setup_theme',
@@ -171,7 +343,9 @@ def main(argv=None):
     ap.add_argument("--css", action="append", required=True)
     ap.add_argument("--js", action="append", default=[])
     ap.add_argument("--fonts-url", default="")
-    ap.add_argument("--media-url", default="")
+    ap.add_argument("--media-url", default="__THEME_URI__/assets/images",
+                    help="where the page images are; the default token is resolved by the importer")
+    ap.add_argument("--version", default="2.0.0", help="the theme's Version header")
     ap.add_argument("--presets", choices=("on", "off"), default="on")
     ap.add_argument("--layout", choices=("on", "off"), default="on")
     ap.add_argument("--author", default="", help="the style.css Author when the source theme names none")
@@ -183,7 +357,11 @@ def main(argv=None):
     raise_mod = load("raise_specificity", "raise-specificity.py")
     if out.exists():
         shutil.rmtree(out)
-    for d in ("templates", "parts", "content", "assets/images", "assets/js"):
+    reports = out.parent / f"{out.name}.reports"
+    if reports.exists():
+        shutil.rmtree(reports)
+    reports.mkdir(parents=True)
+    for d in ("templates", "parts", "content", "inc", "assets/images", "assets/js"):
         (out / d).mkdir(parents=True, exist_ok=True)
 
     # theme.json — the tokens as presets.
@@ -215,7 +393,7 @@ def main(argv=None):
                    f"lives in theme.json, and every page is core blocks that use it.")
     fields = [("Theme Name", args.name), ("Theme URI", head.get("Theme URI", "")), ("Author", author),
               ("Author URI", head.get("Author URI", "")), ("Description", description),
-              ("Requires at least", "6.6"), ("Tested up to", tested), ("Requires PHP", "7.4"), ("Version", "2.0.0"),
+              ("Requires at least", "6.6"), ("Tested up to", tested), ("Requires PHP", "7.4"), ("Version", args.version),
               ("License", "GNU General Public License v2 or later"),
               ("License URI", "https://www.gnu.org/licenses/gpl-2.0.html"), ("Text Domain", args.slug),
               ("Tags", "full-site-editing, custom-colors, editor-style")]
@@ -223,7 +401,7 @@ def main(argv=None):
     holder = author or f"the {head.get('Theme Name') or old.name} theme authors"
     (out / "readme.txt").write_text(
         f"=== {args.name} ===\nContributors: \nRequires at least: 6.6\nTested up to: {tested}\n"
-        f"Requires PHP: 7.4\nStable tag: 2.0.0\nLicense: GPLv2 or later\n"
+        f"Requires PHP: 7.4\nStable tag: {args.version}\nLicense: GPLv2 or later\n"
         f"License URI: https://www.gnu.org/licenses/gpl-2.0.html\n\n{description}\n\n"
         f"== Description ==\n\n{description} Colours, type sizes and spacing are presets: change them in "
         f"Appearance > Editor > Styles and every block that uses them follows.\n\n"
@@ -273,9 +451,25 @@ def main(argv=None):
         rc = conv_mod.main([str(src), "--tokens", args.tokens, "--out", str(target), "--presets", args.presets,
                             "--layout", args.layout, "--media-url", args.media_url])
         report = json.loads(Path(str(target) + ".report.json").read_text())
-        Path(str(target) + ".report.json").rename(out / "content" / (src.stem + ".report.json"))
+        Path(str(target) + ".report.json").rename(reports / (src.stem + ".report.json"))
         shells[src.stem] = report.get("shell")
         summary[src.stem] = report["blocks"]
+    # What the importer creates: every page, its address and title as the
+    # source bundle names them, the front page flagged.
+    index = old / "clara-content" / "sources" / "index.json"
+    rows = {r.get("key"): r for r in (json.loads(index.read_text()) if index.is_file() else [])}
+    pages = []
+    for src in sources:
+        row = rows.get(src.stem) or {}
+        front = src.stem == "front-page"
+        pages.append({"key": src.stem, "slug": "home" if front else (row.get("slug") or src.stem),
+                      "title": row.get("title") or src.stem.replace("-", " ").title(), "front": front})
+    (out / "content" / "pages.json").write_text(json.dumps(pages, indent=2, ensure_ascii=False) + "\n")
+    prefix = re.sub(r"[^a-z0-9]+", "_", args.slug.lower()).strip("_")
+    (out / "inc" / "import.php").write_text(
+        IMPORT_PHP.replace("__UPREFIX__", prefix.upper()).replace("__PREFIX__", prefix).replace("__SLUG__", args.slug).replace("__NAME__", args.name)
+        .replace("__PKG__", re.sub(r"[^A-Za-z0-9]", "", args.name.title())).replace("__COUNT__", str(len(pages))))
+
     # An image's classes land on the <figure> core wraps it in: whatever
     # sized or fitted the <img> — a width, a height, an aspect ratio, object-fit
     # — now sizes the figure, and the image fills it. Rules for exactly the
