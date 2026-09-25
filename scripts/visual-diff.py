@@ -11,7 +11,10 @@ frame can land differently between two runs (pitfall #11).
     python3 visual-diff.py --original <dir> --live http://127.0.0.1:8899 --width 390
     python3 visual-diff.py --original <dir> --live http://127.0.0.1:8899 about contact
 
---original is the directory render-original.py wrote: one <key>.html per page.
+--original is the directory render-original.py wrote: one <key>.html per page
+— or the ORIGINAL SITE ITSELF, live (http://…: the html2wp theme installed in a
+WordPress of its own), with the page keys named on the command line; each
+maps to the same route on both sides.
 --live is a running WordPress with the converted theme active — the version
 that matters, the only one where core's own block styles, the global
 stylesheet theme.json generates and the real query loops are in play. A
@@ -101,8 +104,10 @@ def parse(argv):
             consumed.add(argv.index(name) + 1)
     pages = [a for i, a in enumerate(argv) if a and not a.startswith("--") and i not in consumed]
     # Absolute paths: Playwright loads files as file:// URIs, which relative paths cannot become.
+    remote = original.startswith(("http://", "https://"))
     return {
-        "original": Path(original).resolve(), "live": live.rstrip("/") if live else None,
+        "original": original.rstrip("/") if remote else Path(original).resolve(), "remote": remote,
+        "live": live.rstrip("/") if live else None,
         "preview": Path(preview).resolve() if preview else None,
         "out": Path(option(argv, "--out", "preview-diff")).resolve(),
         "width": int(option(argv, "--width", "1440")),
@@ -115,11 +120,17 @@ def main(argv):
     opt = parse(argv)
     if opt is None:
         return 2
-    if not opt["original"].is_dir():
+    if opt["remote"]:
+        if not opt["pages"]:
+            print("error: a live --original needs the page keys to compare", file=sys.stderr)
+            return 2
+        keys = list(opt["pages"])
+    elif not opt["original"].is_dir():
         print(f"error: {opt['original']} is not a directory", file=sys.stderr)
         return 2
-    keys = sorted(p.stem for p in opt["original"].glob("*.html") if p.stem != "index")
-    if opt["pages"]:
+    else:
+        keys = sorted(p.stem for p in opt["original"].glob("*.html") if p.stem != "index")
+    if opt["pages"] and not opt["remote"]:
         missing = [k for k in opt["pages"] if k not in keys]
         if missing:
             print(f"error: no original for {', '.join(missing)}", file=sys.stderr)
@@ -138,7 +149,8 @@ def main(argv):
         page = context.new_page()
 
         for key in keys:
-            old_file = opt["original"] / f"{key}.html"
+            old_file = (opt["original"] + opt["paths"].get(key, f"/{key}/")) if opt["remote"] \
+                else opt["original"] / f"{key}.html"
             if opt["live"]:
                 new_target = opt["live"] + opt["paths"].get(key, f"/{key}/")
             else:

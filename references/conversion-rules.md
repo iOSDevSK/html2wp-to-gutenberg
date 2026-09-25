@@ -10,13 +10,73 @@ declarations; yours will differ). Everything else transfers as-is.
 
 ## The one rule
 
-**Keep every original class, in the same nesting order, on the same kind of
-element.** Blocks are the vehicle; the classes are the design. A `<div class="wrap">`
-becomes a `core/group` whose `className` is `wrap`, and its rendered output is
-`<div class="wp-block-group wrap">` — the extra `wp-block-group` is harmless,
-the missing `wrap` would not be.
+**The design lives in `theme.json`; the blocks use it; a class survives only
+where a preset would move pixels.** Every element keeps its place, its kind and
+its nesting order. What changes is where its look is written: a class whose
+single declaration IS a design token becomes the block attribute an official
+theme would store, and every other class stays in `className`, in order.
 
-Never invent classes. Never drop one because it "looks unused".
+```
+<h3 class="text-2xl text-ember md:text-3xl">
+  → <!-- wp:heading {"level":3,"className":"text-2xl md:text-3xl","textColor":"ember"} -->
+     (text-2xl stays a class: md:text-3xl touches the same property)
+<p class="text-sm">
+  → <!-- wp:paragraph {"fontSize":"sm","style":{"typography":{"lineHeight":"1.4285714286"}}} -->
+<div class="flex items-center justify-between gap-4 px-6">
+  → <!-- wp:group {"style":{"spacing":{"padding":{"left":"var:preset|spacing|6","right":"var:preset|spacing|6"},
+        "blockGap":"var:preset|spacing|4"}},"layout":{"type":"flex","verticalAlignment":"center",
+        "justifyContent":"space-between","flexWrap":"nowrap"}} -->
+```
+
+Never invent classes. Never drop one because it "looks unused". A class that
+cannot move stays — the residue is not a failure, it is what core cannot say
+(breakpoints, hover, opacity mixes, transforms). `scripts/convert-source.py`
+applies all of this and writes, per page, every class it kept and why.
+
+---
+
+## What moves out of className
+
+The map is `tokens.json` (`scripts/extract-tokens.py`): only classes whose
+base rule is exactly one token. A class moves when **all three** hold —
+otherwise it stays a class:
+
+1. **It is mapped.** `text-X`/`bg-X`/`border-X` whose value is a colour
+   variable → `textColor`/`backgroundColor`/`borderColor`; `font-X` →
+   `fontFamily`; `text-2xl` → `fontSize` plus the line height it carried
+   (`style.typography.lineHeight`, full precision); `leading-*` →
+   `lineHeight`; `p*-N`/`m*-N` → `style.spacing.padding/margin` sides as
+   `var:preset|spacing|N`; `gap-N` → `style.spacing.blockGap`. A class with a
+   conditional twin (`@supports` colour-mix of an opacity utility) is not a
+   token: its base rule is only the fallback.
+2. **Nothing else on the element touches the same property**, variants
+   included (`md:px-10` keeps `px-6`; `hover:text-ember` keeps `text-ink`):
+   core has no breakpoints and no states, and a preset class is
+   `!important`, so moving one half of a responsive pair would pin it.
+3. **The block supports the attribute.** Group: colours, border colour,
+   padding, margin, blockGap. Paragraph, heading, list: those plus
+   fontSize, fontFamily, lineHeight. Image: none (the frame classes stay).
+
+Palette slugs that collide with core's own generic classes (`text`,
+`border`, `link`, `heading`, `button`) get a `-tone` suffix:
+`has-border-color` is written on every bordered block, and a palette colour
+called `border` would paint its text.
+
+## Core layout instead of layout classes
+
+A group whose classes say how its children are laid out gets core layout,
+and those classes leave `className`:
+
+| Classes | Layout |
+|---|---|
+| `flex` (+ `flex-col`, `justify-*`, `items-*`, `flex-wrap`) | `{"type":"flex","orientation":…,"justifyContent":…,"verticalAlignment":…,"flexWrap":…}` — only the values core's `layout.php` accepts for that orientation; `items-baseline` has none, so it stays a class. No `items-*` = `stretch`, and no `flex-wrap` = `"flexWrap":"nowrap"`: core's own defaults (wrap, centre) are not CSS's. |
+| `grid grid-cols-N` (`repeat(N,minmax(0,1fr))`) | `{"type":"grid","columnCount":N}` |
+| `mx-auto max-w-[W]` + the design's own padding, on a group without its own background or border, whose children set no width of their own | `{"type":"constrained"}` — the width is theme.json's `contentSize`, derived from the design's most common container |
+| anything else (`md:flex`, `lg:grid-cols-3`, `space-y-*`, a wrapper whose child sets `max-w-*`) | `{"type":"default"}` + the classes, as before |
+
+Responsive layout is the permanent residue: core layout has no breakpoints,
+so `grid md:grid-cols-2 lg:grid-cols-3` stays three classes on a default-layout
+group, and the design's CSS lays it out.
 
 ---
 
@@ -42,9 +102,12 @@ Never invent classes. Never drop one because it "looks unused".
 | `<form>` | `clara-ve/form` + one block per field (see **Forms**) |
 | `<hr>` | `<!-- wp:separator {"className":"hr"} -->` |
 
-`layout: {"type":"default"}` on every group is deliberate — it is flow layout,
-which renders a plain `<div>` and lets the design's own CSS own the spacing. Do
-not use `constrained`; it would add a max-width the design does not want.
+The rows above show the residue case — `{"type":"default"}` (flow layout, a
+plain `<div>`, the design's own CSS owns the spacing) is right for a group whose
+layout is responsive or belongs to its children. A group whose layout core can
+say gets it (see **Core layout** above); `constrained` only where the design
+itself centres the content at `contentSize`, never as a default, since it adds
+a max width and auto margins to every child.
 
 ---
 

@@ -24,6 +24,12 @@ at step 9 that Playwright is absent has done eight steps it cannot close.
 | `lint-html.py <theme>` | tier 1 — tag balance inside block markup | python3 |
 | `raise-specificity.py <site.css> [--write]` | step 4 — `:root ` prefix on every selector (pitfall #3) | python3 |
 | `apply-style-classes.py --sources … --pages … --map … [--write]` | step 7 — inline styles → utility classes, reconciled by class-set + ordinal (pitfall #6) | python3 |
+| `extract-tokens.py <old> --css … --out tokens.json` | step 2 — the design's tokens as theme.json presets, and which classes become block attributes | python3 |
+| `scaffold-theme.py --old … --tokens … --out …` | steps 2, 4, 6, 7 — the sibling theme: theme.json, CSS pointed at the presets, parts, templates, content | python3 |
+| `convert-source.py <source> --tokens … --out …` | step 7 — one page as core blocks, presets and core layout first, the rest as class residue | python3 |
+| `block-metrics.py <theme> [--json …]` | the quality report — presets %, core layout %, classes per block, core/html count | python3 |
+| `block-roundtrip.cjs [--canonical] file …` | criterion 2 before WordPress — `validateBlock` + byte round trip in node | node + `block-node-setup.sh` |
+| `block-node-setup.sh <dir> [wp-X.Y]` | the node packages for the above, every `@wordpress/*` pinned to one release | npm |
 | `wp-sandbox/setup.sh <theme> [sandbox]` | tier 2 — WordPress on SQLite beside the theme, installed, imported | php (sqlite3, gd), curl, unzip, rsync |
 | `wp-sandbox/sync.sh <theme> <sandbox>` | tier 2 — push theme changes in again | rsync |
 | `render-original.py --config …` | tier 2 baseline — the html2wp sources composed the way the old runtime did | python3 |

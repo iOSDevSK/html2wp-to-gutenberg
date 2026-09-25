@@ -10,6 +10,12 @@ Python dependencies: `pip install -r scripts/requirements.txt && python3 -m play
 | [`lint-html.py`](#lint-htmlpy) | Tier 1 |
 | [`raise-specificity.py`](#raise-specificitypy) | Step 4 |
 | [`apply-style-classes.py`](#apply-style-classespy) | Step 7 |
+| [`extract-tokens.py`](#extract-tokenspy) | Step 2 |
+| [`scaffold-theme.py`](#scaffold-themepy) | Steps 2, 4, 6 and 7 |
+| [`convert-source.py`](#convert-sourcepy) | Step 7 |
+| [`block-metrics.py`](#block-metricspy) | The quality report |
+| [`block-roundtrip.cjs`](#block-roundtripcjs) | Criterion 2, before WordPress |
+| [`block-node-setup.sh`](#block-node-setupsh) | Criterion 2, the node packages |
 | [`render-original.py`](#render-originalpy) | Tier 2 baseline |
 | [`visual-diff.py`](#visual-diffpy) | Criterion 1 |
 | [`measure-diff.py`](#measure-diffpy) | Criterion 1, debugging |
@@ -206,6 +212,306 @@ Exit status: 0 done (unmapped declarations are reported, not fatal), 2 usage.
 
 </details>
 
+## extract-tokens.py
+
+```
+extract-tokens.py <old-theme> --css <file> [--css …] --out tokens.json [--sources dir …] [--theme-json theme.json]
+```
+
+**Serves:** Step 2 — the presets.
+
+Reads the design's stylesheet and the classes the pages use, and writes `tokens.json`: the theme.json presets (palette, font families, font sizes, spacing steps — only what a used class reads, named after the design's own variables), the class → block-attribute map `convert-source.py` applies, the properties every class sets (variants included, so a responsive twin keeps a class a class), the `contentSize` of the design's own container, and the variable each preset came from, so `scaffold-theme.py` can point the design's `:root` at the preset.
+
+```bash
+python3 scripts/extract-tokens.py ../mara-vidal --css assets/styles.css --out tokens.json
+```
+
+<details><summary>The script's own header</summary>
+
+```text
+The design's tokens, as theme.json presets and a class → block-attribute map.
+
+An official block theme keeps its design in theme.json — a palette, font
+families, a type scale, a spacing scale — and its blocks use those presets.
+An html2wp theme's design is a stylesheet whose rules read custom properties
+(`:root{--ember:…}` and `.text-ember{color:var(--ember)}`): the tokens are
+already there, named by the designer. This reads them out of the stylesheet
+and the classes the pages actually use; it invents nothing.
+
+    python3 extract-tokens.py <old-theme> --css assets/site.css --out tokens.json
+    python3 extract-tokens.py <old-theme> --css … --out tokens.json --theme-json theme.json
+
+tokens.json:
+
+  presets    palette, fontFamilies, fontSizes, spacingSizes — only what a used
+             class reads, slugs from the design's own variable names
+             (--ember → "ember", --text-2xl → "2-xl", calc(var(--spacing)*5)
+             → "5"), values resolved to literals
+  classes    for every used class whose rule is one token: the block
+             attribute that says the same (textColor, backgroundColor,
+             borderColor, fontFamily, fontSize (+ the line height it carried),
+             lineHeight, padding/margin sides, blockGap, and the layout
+             properties convert-source.py reads)
+  properties the CSS properties every class sets, variants included
+             (md:px-10 → padding-inline): a class converts only when no other
+             class on the element touches the same property
+  layout     contentSize: the most used centred max width less its widest
+             padding (what core's constrained layout measures)
+  aliases    for every variable a preset came from, the preset variable it
+             now reads (--ember → var(--wp--preset--color--ember)):
+             scaffold-theme.py points the design's own :root at theme.json,
+             so a colour changed in Styles reaches the classes that stayed
+             classes too, and the token is defined once
+
+--theme-json merges the presets into a theme.json (settings.color.palette,
+typography.fontFamilies/fontSizes, spacing.spacingSizes, with core's defaults
+off) and prints it or writes it there.
+
+Exit 0; 2 = usage.
+```
+
+</details>
+
+## scaffold-theme.py
+
+```
+scaffold-theme.py --old <html2wp-theme> --tokens tokens.json --out <dir> --slug <slug> --name <name> --css <file> [--js <file>] [--fonts-url URL] [--media-url URL] [--presets on|off] [--layout on|off] [--author NAME] [--chrome key]
+```
+
+**Serves:** Steps 2, 4, 6 and 7.
+
+Writes the sibling block theme: theme.json v3 from the tokens, the design's stylesheet unlayered and raised with its `:root` variables reading the presets, the block bridge, header and footer parts from the source's own chrome, thin templates, and every page as block markup in `content/` (via `convert-source.py`). `--presets off` is the old every-class-survives rule, kept so a conversion's before and after come from the same code.
+
+```bash
+python3 scripts/scaffold-theme.py --old ../mara-vidal --tokens tokens.json --out ../mara-vidal-blocks --slug mara-vidal-blocks --name "Mara Vidal Blocks" --css assets/styles.css --js assets/spa-runtime.js
+```
+
+<details><summary>The script's own header</summary>
+
+```text
+The sibling block theme, scaffolded the way an official one is laid out.
+
+    python3 scaffold-theme.py --old <html2wp-theme> --tokens tokens.json \
+        --out <new-theme> --slug mara-vidal-blocks --name "Mara Vidal Blocks" \
+        --css assets/styles.css [--js assets/spa-runtime.js] [--fonts-url URL] \
+        [--media-url http://site/wp-content/themes/<slug>/assets/images] [--presets on|off]
+
+What it writes (SKILL.md steps 2, 4, 6; convert-source.py does the pages):
+
+  theme.json     v3, the design tokens as presets (extract-tokens.py): palette,
+                 font families, font sizes, spacing scale — core's own
+                 defaults off — contentSize/wideSize from the design's centred
+                 width, and a root block gap of 0 with blockGap on, so every
+                 gap is a block's own preset and nothing is implied
+  templates/     index, page, front-page: the design's page shell (a group with
+                 its own classes) around the header part, a <main> group, the
+                 post content and the footer part
+  parts/         header and footer, converted from the source's own chrome
+  content/       every page source as block markup (convert-source.py)
+  assets/        the design's stylesheet UNLAYERED and raised by one :root
+                 (pitfall #3: core's layout rules are unlayered, so a layered
+                 utility loses to them whatever its specificity), its :root
+                 variables pointed at the presets they became, its scripts,
+                 its images, and bridge.css — only what core's own wrappers
+                 need (the <figure> an image gains, a background's padding)
+  functions.php  enqueues all of it, the editor included; style.css and
+                 readme.txt with the headers Theme Check requires (carried from
+                 the source; an author it lacks comes from --author or stays out)
+
+Exit 0; 2 = usage.
+```
+
+</details>
+
+## convert-source.py
+
+```
+convert-source.py <source.html> --tokens tokens.json --out <page.html> [--presets on|off] [--layout on|off] [--fragment] [--media-url URL] [--keep path …]
+```
+
+**Serves:** Step 7.
+
+One html2wp page source as core block markup: groups, headings, paragraphs, images, lists; forms, buttons, svg and runtime-driven elements stay `core/html`. Classes that are one token become preset attributes, layout classes become core layout, and everything else stays in `className`; `<out>.report.json` lists every class kept and why. `--keep` reverts named elements to their classes — the pixel gate's escape hatch, one element at a time.
+
+```bash
+python3 scripts/convert-source.py ../mara-vidal/clara-content/sources/about.html --tokens tokens.json --out content/about.html
+```
+
+<details><summary>The script's own header</summary>
+
+```text
+An html2wp page source as core block markup — the way official themes build.
+
+    python3 convert-source.py <source.html> --tokens tokens.json --out page.html
+    python3 convert-source.py <source.html> --tokens tokens.json --out page.html --presets off
+    python3 convert-source.py <part.html> --tokens … --out … --fragment
+
+Two modes, one mapper, so a conversion's "before" and "after" come from the
+same code:
+
+--presets off   the skill's original rule: every class survives on a block of
+                the same kind (a <div class="X"> is a group with className X)
+--presets on    (default) a class whose rule is one design token becomes the
+                block attribute official themes use — textColor,
+                backgroundColor, borderColor, fontSize (with the line height it
+                carried), fontFamily, lineHeight, padding/margin/blockGap as
+                var:preset|spacing|N — and a group's wrapper classes become
+                core layout: flex (orientation, justification, alignment,
+                wrap), grid (columnCount) and constrained (contentSize).
+                A class converts only when no other class on the element
+                touches the same property (a responsive md:text-4xl or a
+                hover: keeps text-2xl a class: core layout and presets have
+                no breakpoints), and only on a block that supports the
+                attribute. Everything else stays in className — the residue
+                the report counts.
+
+Blocks: group (div, section, article, aside, header, footer, main, nav),
+heading, paragraph (text, a standalone link, any inline-only element),
+image, list/list-item. Anything a block cannot hold without losing
+behaviour — a form, a button, an svg, an iframe, an element the old runtime
+drives (data-spa-*), a link wrapping blocks — stays as core/html, verbatim.
+
+--media-url rewrites the bundle's image tokens (__CLARA_UPLOADS_URI__…/<file>
+and __CLARA_THEME_URI__/assets/<file>) to <url>/<file>. --keep lists element
+paths (1.2.0 …, from the report) whose classes stay classes: the pixel gate's
+revert, one element at a time.
+
+Writes the markup and <out>.report.json (every class kept, and why).
+Exit 0; 2 = usage.
+```
+
+</details>
+
+## block-metrics.py
+
+```
+block-metrics.py <theme-dir> [--json out.json] | block-metrics.py file.html …
+```
+
+**Serves:** The quality report.
+
+Counts how official a theme's content is: blocks, how many are `core/html`, the share of blocks using a theme.json preset, the share with core layout (overall and among groups), custom classes per block, style variations, pattern references, and what theme.json declares. Run it before and after a change; the numbers are the claim.
+
+```bash
+python3 scripts/block-metrics.py ../mara-vidal-blocks --json metrics.json
+```
+
+<details><summary>The script's own header</summary>
+
+```text
+How "official" a block theme's content is — the numbers behind the claim.
+
+An official WordPress block theme (Twenty Twenty-Five, the Create Block Theme
+output) keeps its design in theme.json and has its blocks USE it: a heading
+says fontSize "x-large" and textColor "contrast", a section says
+layout constrained and padding var:preset|spacing|50. A converted theme that
+carries every original class on nested groups renders the same page and
+edits like raw HTML. This counts which of the two a theme is, per page and in
+total, so a conversion's progress is a number rather than an opinion:
+
+    python3 block-metrics.py <theme-dir>                 every block file the theme ships
+    python3 block-metrics.py <theme-dir> --json out.json the same, as data
+    python3 block-metrics.py page.html other.html        named block files
+
+What it counts, per block (core/html counted apart: it is not a block
+anybody edits as one):
+
+  presets      the block uses a theme.json preset: textColor, backgroundColor,
+               fontSize, fontFamily, gradient, borderColor, or any
+               var:preset|… in its style
+  layout       layout.type flex, grid or constrained (core layout, not a
+               wrapper class)
+  classes      custom class names in className (is-style-* variations apart)
+  styleVars    is-style-* block style variations
+and per theme: templates, parts, patterns (patterns/*.php), pattern
+references (wp:pattern), and the presets theme.json declares.
+
+Exit 0; 2 = usage.
+```
+
+</details>
+
+## block-roundtrip.cjs
+
+```
+node block-roundtrip.cjs [--canonical] file.html …
+```
+
+**Serves:** Criterion 2, before WordPress.
+
+Gutenberg's own `validateBlock` on every block and the byte round trip `serialize(parse(x)) === x`, in node, without a browser. `--canonical` rewrites a file whose blocks are ALL valid into the serializer's bytes — never a repair; it does not call `createBlock`. The editor check (`editor-validity.py`) still decides; this one finds the failure in a second instead of a sandbox.
+
+```bash
+NODE_PATH=.blocks-node/node_modules node scripts/block-roundtrip.cjs content/*.html parts/*.html templates/*.html
+```
+
+<details><summary>The script's own header</summary>
+
+```text
+Two gates Gutenberg itself decides, without a browser:
+
+  valid       every block's stored markup is what its save() produces
+              (wp.blocks.validateBlock — the check behind "This block
+              contains unexpected or invalid content")
+  round trip  serialize(parse(x)) === x, byte for byte: the file is exactly
+              what the editor would write back, so opening and saving a
+              page changes nothing
+
+  node block-roundtrip.cjs file.html [more.html …]
+  node block-roundtrip.cjs --canonical file.html      rewrite a file whose
+       blocks are ALL valid into the serializer's own bytes (attribute
+       order, whitespace between blocks). Never a repair: one invalid block
+       and the file is left alone. Nothing here calls createBlock.
+
+The packages are the ones one WordPress release ships — every @wordpress/*
+package in the tree pinned to its wp-X.Y dist-tag, or a second copy of
+@wordpress/blocks registers the blocks where validateBlock does not look:
+  bash block-node-setup.sh <dir> wp-7.0
+  NODE_PATH=<dir>/node_modules node block-roundtrip.cjs …
+
+Exit 0 all valid and byte-stable; 1 an invalid block or a round-trip
+difference; 2 usage.
+```
+
+</details>
+
+## block-node-setup.sh
+
+```
+block-node-setup.sh <dir> [wp-X.Y]
+```
+
+**Serves:** Criterion 2, the node packages.
+
+Installs the packages `block-roundtrip.cjs` loads, every `@wordpress/*` one pinned to the same WordPress release through npm overrides.
+
+```bash
+bash scripts/block-node-setup.sh .blocks-node wp-7.0
+```
+
+<details><summary>The script's own header</summary>
+
+```text
+The node packages block-roundtrip.cjs needs, as ONE WordPress release ships
+them:
+
+  bash block-node-setup.sh <dir> [wp-7.0]
+  NODE_PATH=<dir>/node_modules node block-roundtrip.cjs …
+
+Installing @wordpress/blocks and @wordpress/block-library at their wp-X.Y
+dist-tags is not enough: block-library depends on ~57 other @wordpress/*
+packages by range, npm resolves those to today's latest, and a second copy of
+@wordpress/blocks ends up registering the core blocks where validateBlock
+does not look (every block "invalid", or a crash on the first parse). So
+every @wordpress/* package in the tree is pinned to the same dist-tag
+through npm overrides, and the install is done twice: once to learn the
+tree, once pinned.
+
+Exit 0 installed; 1 npm failed; 2 usage.
+```
+
+</details>
+
 ## render-original.py
 
 ```
@@ -277,12 +583,12 @@ Exit status: 0 rendered, 2 usage or config error.
 ## visual-diff.py
 
 ```
-visual-diff.py --original <dir> (--live <url> | --preview <dir>) [--out <dir>] [--width N] [--threshold PCT] [--path key=/route/ ...] [page ...]
+visual-diff.py --original <dir|url> (--live <url> | --preview <dir>) [--out <dir>] [--width N] [--threshold PCT] [--path key=/route/ ...] [page ...]
 ```
 
 **Serves:** Criterion 1.
 
-Screenshots every rendered original and the same page on the live sandbox (or a static preview), diffs them, writes the diff images to `--out`, prints the differing-pixel percentage per page and fails any page above `--threshold`. `--path` maps a page key to a route that differs on the live site; run it at `--width 1440` and `--width 390`.
+Screenshots every rendered original and the same page on the live sandbox (or a static preview), diffs them, writes the diff images to `--out`, prints the differing-pixel percentage per page and fails any page above `--threshold`. `--original` may also be the original site itself, live (the html2wp theme in a WordPress of its own), with the page keys named. `--path` maps a page key to a route that differs on the live site; run it at `--width 1440` and `--width 390`.
 
 ```bash
 python3 scripts/visual-diff.py --original preview-original --live http://127.0.0.1:8899 --out preview-diff --width 1440
@@ -302,7 +608,10 @@ frame can land differently between two runs (pitfall #11).
     python3 visual-diff.py --original <dir> --live http://127.0.0.1:8899 --width 390
     python3 visual-diff.py --original <dir> --live http://127.0.0.1:8899 about contact
 
---original is the directory render-original.py wrote: one <key>.html per page.
+--original is the directory render-original.py wrote: one <key>.html per page
+— or the ORIGINAL SITE ITSELF, live (http://…: the html2wp theme installed in a
+WordPress of its own), with the page keys named on the command line; each
+maps to the same route on both sides.
 --live is a running WordPress with the converted theme active — the version
 that matters, the only one where core's own block styles, the global
 stylesheet theme.json generates and the real query loops are in play. A

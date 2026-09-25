@@ -49,10 +49,21 @@ could not edit it.
 
 ## The one rule of content conversion
 
-**Every original class survives, in the same nesting order, on the same kind
-of element.** Blocks are the vehicle; the classes are the design. The
-original `site.css` is carried over almost verbatim and remains the source of
-truth for appearance. Full mapping rules: `references/conversion-rules.md`.
+**The design lives in `theme.json`, and the blocks use it; a class survives
+only where a preset would move pixels.** This is how an official block theme
+is built (Twenty Twenty-Five, Create Block Theme's output): a heading says
+`fontSize:"2-xl"` and `textColor:"primary"`, a row says `layout:flex`, and the
+client changes them from the block's own panels and from Styles. A class whose
+single declaration IS a design token (`text-primary`, `text-2xl`, `px-6`,
+`gap-4`, `flex items-center`) therefore moves to the block attribute that
+token became; every other class (responsive variants, hover, opacity mixes,
+anything a preset cannot say) stays in `className` in the original nesting
+order, and the original `site.css` is still carried over as the source of truth
+for all of it. The pixel gate is the safety net, not the goal: a move that
+changes the render is a move not made. `scripts/extract-tokens.py` decides
+what can move, `scripts/convert-source.py` moves it,
+`scripts/block-metrics.py` counts how far it got. Full rules:
+`references/conversion-rules.md`.
 
 ## Inputs required
 
@@ -105,12 +116,24 @@ difference between "dead code removed" and "feature lost".
 
 ### 2. Scaffold + theme.json
 
-New directory, new slug, version 2.0.0. `theme.json` v3 mirrors the design's
-`:root` tokens as palette/fonts/spacing presets — **with
+New directory, new slug, version 2.0.0. `theme.json` v3 declares the design's
+tokens as palette/fonts/font-size/spacing presets — **with
 `defaultSpacingSizes:false` and `defaultFontSizes:false`** (pitfall #2),
 `defaultPalette:false`, `appearanceTools:true`, `customTemplates` for the
 page variants (visible in the editor — the old per-slug `page-*.html` files
 were invisible). Disable core's image lightbox if the design ships its own.
+
+The presets are not a mirror for show: they are what the blocks will point
+at. `scripts/extract-tokens.py` reads the design's stylesheet, keeps the
+tokens the pages actually use, and writes `tokens.json` — the presets, and for
+every used class whose rule is exactly one token, the block attribute it
+becomes. Two details the pixel gate caught: a line height is kept at full
+precision (`1.3333333333`, not `1.33` — 390px pages drift a pixel per
+heading otherwise), and a palette slug that equals a class core already
+writes (`border`, `text`, `link`…) is renamed (`border-tone`), or
+`has-border-color` means two things at once. `contentSize` comes from the
+design's own container (`mx-auto max-w-[1400px] px-10` → 1320px).
+`scripts/scaffold-theme.py` writes the theme from it.
 
 ### 3. Fonts: self-host
 
@@ -216,6 +239,17 @@ changes — each silently breaks otherwise:
   binding, so the value sits in an ordinary editable paragraph.
 
 ### 7. Content conversion (the bulk — fan out agents)
+
+**Start with the script, then hand-finish what it leaves.**
+`scripts/convert-source.py` (run by `scaffold-theme.py` for every source)
+converts a page by the one rule above: presets and core layout first, class
+residue for the rest, forms/buttons/svg/runtime widgets as `core/html`, and a
+`report.json` per page naming every class it kept and why. Measure the result
+with `scripts/block-metrics.py`; the pixel gate (step 9) decides. A page that
+moves: find the element with `measure-diff.py`, put its classes back with
+`--keep <path>` — one element, not the whole page. What follows is the
+agents' part: forms, buttons, galleries, accordions — the `core/html` the
+script left.
 
 Write a per-project `CONVERSION-GUIDE.md` from
 `references/conversion-rules.md`, then fan out parallel agents by page
@@ -356,6 +390,15 @@ harnesses agreed with the original at 0.56% while the real thing was 26%
 out; every fault that mattered was found only in WordPress. The harness is
 in `scripts/`; the recipe and the acceptance criteria are in
 `references/verification.md`.
+
+Before the sandbox, in a second: `scripts/block-roundtrip.cjs` over
+`content/`, `parts/` and `templates/` — Gutenberg's own `validateBlock` plus
+the byte round trip (`serialize(parse(x))` returns the file unchanged), with
+the packages of the WordPress release you target (`block-node-setup.sh`).
+In the sandbox, Theme Check (`wp plugin install theme-check --activate`, then
+`wp theme-check run <slug>`) reports no REQUIRED item; `scaffold-theme.py`
+writes the headers and `readme.txt` it asks for, and an author the source
+theme does not name is passed with `--author`, never made up.
 
 Acceptance: every page ≤ ~1% pixel diff against the original at 1440px and
 390px; **0 invalid blocks** when every page and post is opened in the block

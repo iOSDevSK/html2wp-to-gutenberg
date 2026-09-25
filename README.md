@@ -119,6 +119,8 @@ with every project-specific value turned into an argument.
 |---|---|
 | `lint-delimiters.py`, `lint-html.py` | tier 1 — block grammar and pairing, tag balance |
 | `raise-specificity.py`, `apply-style-classes.py` | steps 4 and 7 — the specificity raise, inline styles to utility classes |
+| `extract-tokens.py`, `scaffold-theme.py`, `convert-source.py` | steps 2, 4, 6, 7 — the design's tokens as presets, the theme, every page as core blocks that use them |
+| `block-metrics.py`, `block-roundtrip.cjs`, `block-node-setup.sh` | the quality report; block validity and the byte round trip without a browser |
 | `wp-sandbox/setup.sh`, `sync.sh`, `install.php`, `import.php` | tier 2 — a WordPress on SQLite beside the theme, installed and imported |
 | `render-original.py`, `visual-diff.py`, `measure-diff.py` | criterion 1 — the pixel diff against the original, and which element moved |
 | `editor-validity.py` | criterion 2 — invalid blocks across every page and post |

@@ -33,6 +33,10 @@ and "feature lost", and it is the first thing to read when the audit is done.
 A new directory under the new slug, `theme.json` v3 with the design's tokens
 as presets and core's own presets switched off (pitfall #2), custom templates
 for the page variants so they are visible in the editor.
+`extract-tokens.py` reads the presets out of the design's stylesheet, and
+`scaffold-theme.py` writes the theme from them — the design's `:root`
+variables reading the presets, so a colour changed in Styles reaches every
+block and every class that stayed a class.
 
 *Produces:* an empty theme that activates. *Gate:* `php -l`, the doctor.
 
@@ -71,10 +75,14 @@ Navigation screen listing the menus.
 
 ## 7. Content conversion
 
-The bulk. A per-project `CONVERSION-GUIDE.md` is written from
-`references/conversion-rules.md`, then agents convert pages in parallel by
-family, each reporting its section list and every inline style it could not
-map. `apply-style-classes.py` reconciles those in one pass afterwards.
+The bulk. `convert-source.py` converts every page first — presets and core
+layout where a class is one token, the class kept where it is not, forms and
+runtime widgets left as `core/html` — and `block-metrics.py` measures the
+result. Then a per-project `CONVERSION-GUIDE.md` is written from
+`references/conversion-rules.md`, and agents finish the `core/html` the script
+left in parallel by family, each reporting its section list and every inline
+style it could not map. `apply-style-classes.py` reconciles those in one pass
+afterwards.
 
 *Produces:* `content/pages/*.html`, `content/posts/*.html`, `pages.json`,
 `posts.json`, `terms.json`, `redirects.json`. *Gate:* both linters over
