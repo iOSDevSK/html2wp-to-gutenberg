@@ -234,6 +234,7 @@ function __PREFIX___import_pages() {
 		flush_rewrite_rules( false );
 	}
 	$state['imported'] = time();
+	$state['version']  = wp_get_theme( get_template() )->get( 'Version' );
 	$state['result']   = $result;
 	update_option( '__PREFIX___import', $state, false );
 	return $result;
@@ -281,17 +282,26 @@ add_action(
 			);
 			return;
 		}
-		$state = get_option( '__PREFIX___import', array() );
-		if ( ! empty( $state['imported'] ) ) {
+		// Offered until this version's pages are in: a newer theme over an
+		// older one brings newer pages, and the owner is asked again.
+		$state   = get_option( '__PREFIX___import', array() );
+		$version = wp_get_theme( get_template() )->get( 'Version' );
+		if ( ! empty( $state['imported'] ) && isset( $state['version'] ) && $state['version'] === $version ) {
 			return;
 		}
+		$update = ! empty( $state['imported'] );
 		printf(
 			'<div class="notice notice-info"><p>%1$s</p><form method="post" action="%2$s"><input type="hidden" name="action" value="__PREFIX___import">%3$s<p><button class="button button-primary">%4$s</button></p></form></div>',
-			/* translators: %d: number of pages */
-			esc_html( sprintf( __( '__NAME__ ships %d pages. Import them to see the site as it was designed; the front page and pretty permalinks are set too.', '__SLUG__' ), __COUNT__ ) ),
+			esc_html(
+				$update
+					/* translators: 1: theme version, 2: number of pages */
+					? sprintf( __( '__NAME__ %1$s brings new versions of its %2$d pages. Update them: the pages this theme created are replaced, pages you made are left alone.', '__SLUG__' ), $version, __COUNT__ )
+					/* translators: %d: number of pages */
+					: sprintf( __( '__NAME__ ships %d pages. Import them to see the site as it was designed; the front page and pretty permalinks are set too.', '__SLUG__' ), __COUNT__ )
+			),
 			esc_url( admin_url( 'admin-post.php' ) ),
 			wp_nonce_field( '__PREFIX___import', '_wpnonce', true, false ),
-			esc_html__( 'Import the pages', '__SLUG__' )
+			$update ? esc_html__( 'Update the pages', '__SLUG__' ) : esc_html__( 'Import the pages', '__SLUG__' )
 		);
 	}
 );
