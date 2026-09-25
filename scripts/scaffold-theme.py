@@ -15,10 +15,15 @@ What it writes (SKILL.md steps 2, 4, 6; convert-source.py does the pages):
                  defaults off — contentSize/wideSize from the design's centred
                  width, and a root block gap of 0 with blockGap on, so every
                  gap is a block's own preset and nothing is implied
-  templates/     index, page, front-page: the design's page shell (a group with
-                 its own classes) around the header part, a <main> group, the
-                 post content and the footer part
-  parts/         header and footer, converted from the source's own chrome
+  templates/     Twenty Twenty-Five's set in the design's page shell (a group
+                 with its own classes) around the header part, a <main> group
+                 and the footer part: page and front-page hold the post
+                 content; index, home, archive, search, single and 404 are
+                 built from the presets and the design's content rail
+  parts/         header and footer, converted from the source's own chrome:
+                 menus as core/navigation placements, the site's name as
+                 core/site-title (content/menus.json, placements.json,
+                 site.json; inc/navigation.php; editor-navigation.css)
   content/       every page source as block markup (convert-source.py), and
                  pages.json: each page's key, address and title
   inc/import.php the importer: an admin notice with one button (and a
@@ -47,6 +52,7 @@ import json
 import re
 import shutil
 import sys
+from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -97,6 +103,27 @@ def style_header(path):
     return out
 
 
+def compile_classes(tok_mod, css, classes, target):
+    """The design's rules for these classes, re-aimed at one selector: every
+    rule whose selector is one of the classes (with its pseudo-class or
+    pseudo-element, inside its @media/@supports) becomes the same rule for
+    target. Source order is kept, so the cascade between them is the design's."""
+    wanted = set(classes)
+    out = []
+    for sel, body, ctx in tok_mod.rules(css):
+        hits = []
+        for one in sel.split(","):
+            got = tok_mod.class_of(one)
+            if got and got[0] in wanted:
+                hits.append(target + got[1])
+        if hits:
+            rule = ",".join(hits) + "{" + body + "}"
+            for at in reversed(ctx):
+                rule = at + "{" + rule + "}"
+            out.append(rule)
+    return "\n".join(out) + ("\n" if out else "")
+
+
 def point_at_presets(css, aliases):
     """The design's top-level :root variables read theme.json's presets
     (--ember:oklch(…) → --ember:var(--wp--preset--color--ember)), so the token
@@ -132,7 +159,7 @@ def point_at_presets(css, aliases):
 BRIDGE = """/* Block bridge — only what core's own wrappers change (SKILL.md step 4). */
 :root :where(.wp-block-image){margin:0}
 :root .wp-block-image > img{display:block}
-{images}:root :where(.wp-block-group.has-background,p.has-background,h1.has-background,h2.has-background,h3.has-background,h4.has-background,h5.has-background,h6.has-background){padding:0}
+{images}{navigation}:root :where(.wp-block-group.has-background,p.has-background,h1.has-background,h2.has-background,h3.has-background,h4.has-background,h5.has-background,h6.has-background){padding:0}
 :root :where(.wp-block-post-content,.wp-site-blocks){margin:0}
 """
 
@@ -181,6 +208,7 @@ function __PREFIX___import_pages() {
 	$result = array(
 		'created' => 0,
 		'updated' => 0,
+		'menus'   => 0,
 		'skipped' => array(),
 	);
 	$front  = 0;
@@ -233,6 +261,78 @@ function __PREFIX___import_pages() {
 		$wp_rewrite->set_permalink_structure( '/%postname%/' );
 		flush_rewrite_rules( false );
 	}
+
+	// The menus the parts place (content/menus.json): one wp_navigation post
+	// each, its links to the pages just made, so the Navigation screen lists
+	// them and one edit reaches every placement (pitfall #12b).
+	$menus          = wp_json_file_decode( $dir . '/menus.json', array( 'associative' => true ) );
+	$state['menus'] = isset( $state['menus'] ) ? $state['menus'] : array();
+	foreach ( is_array( $menus ) ? $menus : array() as $menu ) {
+		$links = '';
+		foreach ( $menu['items'] as $item ) {
+			$slug  = trim( $item['path'], '/' );
+			$page  = '' === $slug ? ( $front ? get_post( $front ) : null ) : get_page_by_path( $slug, OBJECT, 'page' );
+			$attrs = array( 'label' => $item['label'] );
+			if ( $page ) {
+				$attrs += array(
+					'type' => 'page',
+					'id'   => $page->ID,
+					'url'  => get_permalink( $page ),
+					'kind' => 'post-type',
+				);
+			} else {
+				$attrs += array(
+					'url'  => home_url( $item['path'] ),
+					'kind' => 'custom',
+				);
+			}
+			$links .= serialize_block(
+				array(
+					'blockName'    => 'core/navigation-link',
+					'attrs'        => $attrs,
+					'innerBlocks'  => array(),
+					'innerHTML'    => '',
+					'innerContent' => array(),
+				)
+			);
+		}
+		$existing = get_page_by_path( $menu['slug'], OBJECT, 'wp_navigation' );
+		if ( $existing && ! get_post_meta( $existing->ID, __UPREFIX___IMPORT_FLAG, true ) ) {
+			$result['skipped'][ $menu['slug'] ] = __( 'a menu of that name exists that this theme did not create', '__SLUG__' );
+			continue;
+		}
+		$args = array(
+			'post_type'    => 'wp_navigation',
+			'post_status'  => 'publish',
+			'post_title'   => $menu['name'],
+			'post_name'    => $menu['slug'],
+			'post_content' => $links,
+		);
+		if ( $existing ) {
+			$args['ID'] = $existing->ID;
+		}
+		$id = $existing ? wp_update_post( wp_slash( $args ), true ) : wp_insert_post( wp_slash( $args ), true );
+		if ( is_wp_error( $id ) ) {
+			$result['skipped'][ $menu['slug'] ] = $id->get_error_message();
+			continue;
+		}
+		update_post_meta( $id, __UPREFIX___IMPORT_FLAG, 1 );
+		$state['menus'][ $menu['slug'] ] = $id;
+		++$result['menus'];
+	}
+
+	// The site's name and tagline are what the header's site title shows:
+	// the design's own words (content/site.json), the owner's recorded first.
+	$site = wp_json_file_decode( $dir . '/site.json', array( 'associative' => true ) );
+	if ( is_array( $site ) && ! empty( $site['name'] ) ) {
+		foreach ( array( 'blogname', 'blogdescription' ) as $option ) {
+			if ( ! array_key_exists( $option, $state['site_options_before'] ) ) {
+				$state['site_options_before'][ $option ] = get_option( $option );
+			}
+		}
+		update_option( 'blogname', $site['name'] );
+		update_option( 'blogdescription', isset( $site['description'] ) ? $site['description'] : '' );
+	}
 	$state['imported'] = time();
 	$state['version']  = wp_get_theme( get_template() )->get( 'Version' );
 	$state['result']   = $result;
@@ -276,8 +376,8 @@ add_action(
 			printf(
 				'<div class="notice %1$s"><p>%2$s</p>%3$s</div>',
 				$total ? 'notice-success' : 'notice-error',
-				/* translators: 1: pages created, 2: pages updated */
-				esc_html( sprintf( __( '__NAME__: %1$d pages created, %2$d updated.', '__SLUG__' ), $done['created'], $done['updated'] ) ),
+				/* translators: 1: pages created, 2: pages updated, 3: menus */
+				esc_html( sprintf( __( '__NAME__: %1$d pages created, %2$d updated; %3$d menus.', '__SLUG__' ), $done['created'], $done['updated'], isset( $done['menus'] ) ? $done['menus'] : 0 ) ),
 				$lines ? '<p>' . implode( '<br>', $lines ) . '</p>' : ''
 			);
 			return;
@@ -295,15 +395,116 @@ add_action(
 			esc_html(
 				$update
 					/* translators: 1: theme version, 2: number of pages */
-					? sprintf( __( '__NAME__ %1$s brings new versions of its %2$d pages. Update them: the pages this theme created are replaced, pages you made are left alone.', '__SLUG__' ), $version, __COUNT__ )
+					? sprintf( __( '__NAME__ %1$s brings new versions of its %2$d pages and its menus. Update them: what this theme created is replaced, what you made is left alone.', '__SLUG__' ), $version, __COUNT__ )
 					/* translators: %d: number of pages */
-					: sprintf( __( '__NAME__ ships %d pages. Import them to see the site as it was designed; the front page and pretty permalinks are set too.', '__SLUG__' ), __COUNT__ )
+					: sprintf( __( '__NAME__ ships %d pages and the menus its header and footer show. Import them to see the site as it was designed; the front page, the site name and pretty permalinks are set too.', '__SLUG__' ), __COUNT__ )
 			),
 			esc_url( admin_url( 'admin-post.php' ) ),
 			wp_nonce_field( '__PREFIX___import', '_wpnonce', true, false ),
 			$update ? esc_html__( 'Update the pages', '__SLUG__' ) : esc_html__( 'Import the pages', '__SLUG__' )
 		);
 	}
+);
+"""
+
+
+NAVIGATION_PHP = """<?php
+/**
+ * The design's menus as core/navigation (SKILL.md step 6).
+ *
+ * content/placements.json lists where a menu appears in the parts: each
+ * placement is a pattern registered here — a static part cannot carry the
+ * menu's post ID, so the pattern resolves it (the importer records it) — and
+ * the classes the design gives its links there. One menu, two placements,
+ * one edit.
+ *
+ * @package __PKG__
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+/**
+ * The placements, as scaffolded.
+ *
+ * @return array
+ */
+function __PREFIX___placements() {
+	static $placements = null;
+	if ( null === $placements ) {
+		$placements = wp_json_file_decode( get_template_directory() . '/content/placements.json', array( 'associative' => true ) );
+		$placements = is_array( $placements ) ? $placements : array();
+	}
+	return $placements;
+}
+
+add_action(
+	'init',
+	static function () {
+		$state = get_option( '__PREFIX___import', array() );
+		$menus = isset( $state['menus'] ) ? $state['menus'] : array();
+		foreach ( __PREFIX___placements() as $placement ) {
+			$attrs = $placement['block'];
+			$id    = isset( $menus[ $placement['menu'] ] ) ? (int) $menus[ $placement['menu'] ] : 0;
+			// Before the import there is no menu yet: core shows its fallback.
+			if ( $id && 'wp_navigation' === get_post_type( $id ) && 'publish' === get_post_status( $id ) ) {
+				$attrs = array( 'ref' => $id ) + $attrs;
+			}
+			register_block_pattern(
+				'__SLUG__/navigation-' . $placement['id'],
+				array(
+					/* translators: %d: placement number */
+					'title'    => sprintf( __( 'Navigation %d', '__SLUG__' ), $placement['id'] ),
+					'inserter' => false,
+					'content'  => '<!-- wp:navigation ' . serialize_block_attributes( $attrs ) . ' /-->',
+				)
+			);
+		}
+	}
+);
+
+// The design styles each link, not the list: its classes go on every item's
+// <a> (the last one's own, when the design gives it its own — a call to
+// action; the current page's, on the link core marks aria-current), core's
+// item class steps aside so its colour and display rules do not outrank
+// them, and a panel the old runtime toggles keeps the attributes it is
+// driven by. The menu itself stays plain links.
+add_filter(
+	'render_block_core/navigation',
+	static function ( $html, $block ) {
+		$class = isset( $block['attrs']['className'] ) ? explode( ' ', (string) $block['attrs']['className'] ) : array();
+		foreach ( __PREFIX___placements() as $placement ) {
+			if ( ! in_array( $placement['marker'], $class, true ) ) {
+				continue;
+			}
+			$count = new WP_HTML_Tag_Processor( $html );
+			$total = 0;
+			while ( $count->next_tag( array( 'class_name' => 'wp-block-navigation-item__content' ) ) ) {
+				++$total;
+			}
+			$p = new WP_HTML_Tag_Processor( $html );
+			if ( $p->next_tag( 'nav' ) ) {
+				foreach ( $placement['attrs'] as $name => $value ) {
+					$p->set_attribute( $name, '' === $value ? true : $value );
+				}
+			}
+			$i = 0;
+			while ( $p->next_tag( array( 'class_name' => 'wp-block-navigation-item__content' ) ) ) {
+				++$i;
+				$classes = ( $i === $total && '' !== $placement['last'] ) ? $placement['last'] : $placement['items'];
+				if ( 'page' === $p->get_attribute( 'aria-current' ) ) {
+					$classes .= ' ' . $placement['active'];
+				}
+				foreach ( preg_split( '/\\\\s+/', $classes, -1, PREG_SPLIT_NO_EMPTY ) as $name ) {
+					$p->add_class( $name );
+				}
+				$p->remove_class( 'wp-block-navigation-item__content' );
+			}
+			return $p->get_updated_html();
+		}
+		return $html;
+	},
+	10,
+	2
 );
 """
 
@@ -322,6 +523,7 @@ defined( 'ABSPATH' ) || exit;
 add_filter( 'run_wptexturize', '__return_false' );
 
 require_once __DIR__ . '/inc/import.php';
+require_once __DIR__ . '/inc/navigation.php';
 
 add_action(
 	'after_setup_theme',
@@ -428,10 +630,13 @@ def main(argv=None):
         name = f"assets/site-{i}.css" if len(args.css) > 1 else "assets/site.css"
         (out / name).write_text(text, encoding="utf-8")
         styles.append(name)
-        editor.insert(len(editor) - 1, f"'{name}'")
-    # The bridge goes BEFORE the design: it beats core's own block styles
-    # (printed earlier still) and loses every tie to the design's rules.
+        editor.append(f"'{name}'")
+    # The bridge goes BEFORE the design, in the editor as on the page: it
+    # beats core's own block styles (printed earlier still) and loses every
+    # tie to the design's rules. The editor alone also gets the menus' link
+    # styles (editor-navigation.css): on the page they are the link's classes.
     styles.insert(0, "assets/bridge.css")
+    editor.append("'assets/editor-navigation.css'")
     for j in args.js:
         shutil.copy(old / j, out / "assets/js" / Path(j).name)
     for img in list(old.rglob("*.webp")) + list(old.rglob("*.png")) + list(old.rglob("*.jpg")) + list(old.rglob("*.jpeg")):
@@ -497,11 +702,20 @@ def main(argv=None):
                 esc = re.sub(r"([^A-Za-z0-9_-])", r"\\\1", cls)
                 rules.setdefault(fills[prop], []).append(f":root .wp-block-image.{esc} > img")
     images = "".join(",".join(sel) + "{" + decl + "}\n" for decl, sel in sorted(rules.items()))
-    (out / "assets/bridge.css").write_text(BRIDGE.replace("{images}", images))
     chrome_src = old / "clara-content" / "sources" / f"{args.chrome}.html"
     html = chrome_src.read_text(encoding="utf-8")
     tree = conv_mod.Tree(html)
-    conv = conv_mod.Converter(html, tokens, args.presets == "on", args.media_url, [], layout=args.layout == "on")
+    # The menus the bundle declares (menus.json), as the paths they link to:
+    # a row of links in a part with the same paths, in order, is that menu.
+    declared = old / "clara-content" / "menus.json"
+    chrome = {"slug": args.slug, "menus": [], "placements": [], "site": {}}
+    for m in (json.loads(declared.read_text()) if declared.is_file() else []):
+        items = sorted(m.get("items") or [], key=lambda i: i.get("order") or 0)
+        chrome["menus"].append({"slug": m["slug"], "name": m["name"],
+                                "paths": [conv_mod.site_path(i.get("url")) for i in items],
+                                "labels": [i.get("title") or "" for i in items]})
+    conv = conv_mod.Converter(html, tokens, args.presets == "on", args.media_url, [], layout=args.layout == "on",
+                              chrome=chrome)
 
     def first(node, tag):
         for ch in node.children:
@@ -519,6 +733,66 @@ def main(argv=None):
             continue
         (out / "parts" / f"{tag}.html").write_text("\n\n".join(conv.children(node)) + "\n")
         parts[tag] = node.classes()
+    # What the importer and inc/navigation.php need: the menus the parts
+    # place, where they are placed, the site's name. A placement's links are
+    # laid out by its own element, as in the source: core's list and item
+    # wrappers step aside (display:contents), and a panel that is not a flex
+    # row stays a block.
+    # The current page's link: the source marks it (a router's active state,
+    # data-status="active" / aria-current="page") with classes of its own —
+    # found on whichever page the link is current, and added at render time
+    # to the link core marks aria-current.
+    for pl in chrome["placements"]:
+        pl["active"] = ""
+        for src in sources:
+            found = None
+            stack = [conv_mod.Tree(src.read_text(encoding="utf-8")).root]
+            while stack and found is None:
+                n = stack.pop()
+                kids = [k for k in n.children if isinstance(k, conv_mod.Node)]
+                stack.extend(kids)
+                if kids and n.classes() == pl["source"] and all(k.tag == "a" for k in kids) \
+                        and [conv_mod.site_path(k.get("href")) for k in kids] == pl["paths"]:
+                    for i, k in enumerate(kids):
+                        if k.get("data-status") == "active" or k.get("aria-current") == "page":
+                            base = set((pl["last"] if i == len(kids) - 1 and pl["last"] else pl["items"]).split())
+                            found = " ".join(c for c in k.classes() if c not in base)
+                            break
+            if found:
+                pl["active"] = found
+                break
+    menus = [{"slug": m["slug"], "name": m["name"],
+              "items": [{"label": lab, "path": pth} for lab, pth in zip(m["labels"], m["paths"])]}
+             for m in chrome["menus"] if m.get("used")]
+    (out / "content" / "menus.json").write_text(json.dumps(menus, indent=2, ensure_ascii=False) + "\n")
+    (out / "content" / "placements.json").write_text(json.dumps(chrome["placements"], indent=2, ensure_ascii=False) + "\n")
+    if chrome["site"]:
+        (out / "content" / "site.json").write_text(json.dumps(chrome["site"], indent=2, ensure_ascii=False) + "\n")
+    nav_rules = ""
+    for pl in chrome["placements"]:
+        m = pl["marker"]
+        nav_rules += (f":root body:not(.editor-styles-wrapper) .{m} .wp-block-navigation__container,"
+                      f":root body:not(.editor-styles-wrapper) .{m} .wp-block-navigation-item{{display:contents}}\n")
+        if pl["flow"]:
+            nav_rules += f":root .{m}{{display:block}}\n"
+    (out / "assets/bridge.css").write_text(BRIDGE.replace("{images}", images).replace("{navigation}", nav_rules))
+    # In the editor no filter runs: the links are drawn by the design's own
+    # rules for those classes, re-aimed at core's item markup.
+    tok_mod = load("extract_tokens", "extract-tokens.py")
+    design = "\n".join(tok_mod.strip_comments((old / c).read_text(encoding="utf-8")) for c in args.css)
+    editor_css = []
+    for pl in chrome["placements"]:
+        base = f":root .{pl['marker']}.wp-block-navigation"
+        item = " .wp-block-navigation-item:not(:last-child) > .wp-block-navigation-item__content" if pl["last"] \
+            else " .wp-block-navigation-item__content"
+        editor_css.append(compile_classes(tok_mod, design, pl["items"].split(), base + item))
+        if pl["last"]:
+            editor_css.append(compile_classes(tok_mod, design, pl["last"].split(),
+                                              base + " .wp-block-navigation-item:last-child > .wp-block-navigation-item__content"))
+    (out / "assets/editor-navigation.css").write_text("".join(editor_css))
+    (out / "inc" / "navigation.php").write_text(
+        NAVIGATION_PHP.replace("__PREFIX__", prefix).replace("__SLUG__", args.slug)
+        .replace("__PKG__", re.sub(r"[^A-Za-z0-9]", "", args.name.title())))
     shell_node = first(tree.root, "header").parent if first(tree.root, "header") else None
     shell_classes = shell_node.classes() if shell_node is not None and shell_node.tag != "#root" else []
     main_classes = next((s["classes"] for s in shells.values() if s and s.get("tag") in ("main", "div")), [])
@@ -533,16 +807,121 @@ def main(argv=None):
         main_attrs["className"] = " ".join(main_classes)
     main_attrs["layout"] = {"type": "default"}
     main_cls = " ".join(["wp-block-group"] + main_classes)
-    inner = (f"{part('header')}\n\n<!-- wp:group {conv_mod.wp_json(main_attrs)} -->\n<main class=\"{main_cls}\">"
-             f"<!-- wp:post-content {{\"layout\":{{\"type\":\"default\"}}}} /--></main>\n<!-- /wp:group -->\n\n{part('footer')}")
-    if shell_classes:
+
+    def shell(body):
+        inner = (f"{part('header')}\n\n<!-- wp:group {conv_mod.wp_json(main_attrs)} -->\n<main class=\"{main_cls}\">"
+                 f"{body}</main>\n<!-- /wp:group -->\n\n{part('footer')}")
+        if not shell_classes:
+            return inner + "\n"
         shell_attrs = {"className": " ".join(shell_classes), "layout": {"type": "default"}}
-        template = (f"<!-- wp:group {conv_mod.wp_json(shell_attrs)} -->\n<div class=\"wp-block-group "
-                    f"{' '.join(shell_classes)}\">{inner}</div>\n<!-- /wp:group -->\n")
-    else:
-        template = inner + "\n"
-    for name in ("index", "page", "front-page", "singular"):
-        (out / "templates" / f"{name}.html").write_text(template)
+        return (f"<!-- wp:group {conv_mod.wp_json(shell_attrs)} -->\n<div class=\"wp-block-group "
+                f"{' '.join(shell_classes)}\">{inner}</div>\n<!-- /wp:group -->\n")
+
+    # The canonical set (Twenty Twenty-Five's): pages and the front page are
+    # the post content alone — the design's pages carry their own headings —
+    # and the templates the source never had (a post, a listing, search, 404)
+    # are built from the design's presets only: its type scale's largest and
+    # middle sizes, its container padding, its spacing steps. No original to
+    # diff them against; they are checked by eye in the Site Editor.
+    sizes = [f["slug"] for f in tj["settings"]["typography"]["fontSizes"]]
+
+    def step(rem):
+        known = [(slug, float(re.sub(r"rem$", "", size))) for slug, size in
+                 ((x["slug"], x["size"]) for x in tj["settings"]["spacing"]["spacingSizes"]) if size.endswith("rem")]
+        return min(known, key=lambda k: abs(k[1] - rem))[0] if known else None
+    pad_y = step(4)
+    big, mid, small = (sizes[-1], sizes[len(sizes) // 2], sizes[0]) if sizes else (None, None, None)
+    # The design's content rail: the classes its own centred sections carry
+    # (a responsive side padding core cannot say), so a template's left edge
+    # is the pages' left edge at every width.
+    rails = Counter()
+    for f in (out / "content").glob("*.html"):
+        for m in re.finditer(r"<!-- wp:group (\{.*?\}) -->", f.read_text(encoding="utf-8")):
+            a = json.loads(m.group(1))
+            if (a.get("layout") or {}).get("type") == "constrained":
+                rails[a.get("className", "")] += 1
+    rail = rails.most_common(1)[0][0] if rails else ""
+    pad_x = None if rail else (step(float(re.sub(r"px$", "", lay.get("padding", "32px"))) / 16) if lay.get("padding") else step(2))
+
+    def fs(slug):
+        """A preset size, with the line height the design gives that size."""
+        if not slug:
+            return {}
+        lh = next((m["lineHeight"] for m in tokens["classes"].values()
+                   if m.get("fontSize") == slug and m.get("lineHeight")), None)
+        return {"fontSize": slug, **({"style": {"typography": {"lineHeight": lh}}} if lh else {})}
+
+    def gap(rem):
+        g = step(rem)
+        return {"style": {"spacing": {"blockGap": f"var:preset|spacing|{g}"}}} if g else {}
+
+    def section(body, tag="section"):
+        """The design's rail around one column of blocks. The gaps are a grid's:
+        the design's reset zeroes every margin, so core's margin-based block
+        gap would not show (pitfall #3)."""
+        pad = {k: f"var:preset|spacing|{v}" for k, v in (("top", pad_y), ("right", pad_x), ("bottom", pad_y),
+                                                          ("left", pad_x)) if v}
+        style = {"spacing": {"padding": pad}} if pad else {}
+        a = {"tagName": tag, **({"className": rail} if rail else {}), **({"style": style} if style else {}),
+             "layout": {"type": "constrained"}}
+        cls = " ".join(["wp-block-group"] + ([rail] if rail else []))
+        # A one-column grid, not a flex column: a listing's auto-fill grid
+        # inside a flex column is sized at its min-content width and grows
+        # thousands of pixels tall.
+        col = {**gap(1.5), "layout": {"type": "grid", "columnCount": 1}}
+        return (f"<!-- wp:group {conv_mod.wp_json(a)} -->\n<{tag} class=\"{cls}\"{conv.style_attr(style)}>"
+                f"<!-- wp:group {conv_mod.wp_json(col)} -->\n<div class=\"wp-block-group\">{body}</div>\n<!-- /wp:group -->"
+                f"</{tag}>\n<!-- /wp:group -->")
+
+    def dyn(name, attrs=None):
+        return f"<!-- wp:{name} {conv_mod.wp_json(attrs)} /-->" if attrs else f"<!-- wp:{name} /-->"
+
+    def heading(text, level=1):
+        a = {"level": level, **fs(big)}
+        cls = "wp-block-heading" + (f" has-{big}-font-size" if big else "")
+        return (f"<!-- wp:heading {conv_mod.wp_json(a)} -->\n<h{level} class=\"{cls}\"{conv.style_attr(a.get('style', {}))}>"
+                f"{text}</h{level}>\n<!-- /wp:heading -->")
+
+    def para(text):
+        return f"<!-- wp:paragraph -->\n<p>{text}</p>\n<!-- /wp:paragraph -->"
+    query = ("<!-- wp:query " + conv_mod.wp_json({"queryId": 1, "query": {"perPage": 12, "pages": 0, "offset": 0,
+                                                                          "postType": "post", "order": "desc",
+                                                                          "orderBy": "date", "inherit": True}})
+             + " -->\n<div class=\"wp-block-query\">"
+             + "<!-- wp:post-template " + conv_mod.wp_json({**gap(2.5), "layout": {"type": "grid", "minimumColumnWidth": "20rem"}})
+             + " -->\n<!-- wp:group " + conv_mod.wp_json({**gap(0.5), "layout": {"type": "flex", "orientation": "vertical", "justifyContent": "stretch"}})
+             + " -->\n<div class=\"wp-block-group\">"
+             + dyn("post-featured-image", {"isLink": True, "aspectRatio": "4/3"}) + "\n\n"
+             + dyn("post-date", fs(small)) + "\n\n"
+             + dyn("post-title", {"level": 2, "isLink": True, **fs(mid)}) + "\n\n"
+             + dyn("post-excerpt") + "</div>\n<!-- /wp:group -->\n<!-- /wp:post-template -->\n\n"
+             + "<!-- wp:query-pagination " + conv_mod.wp_json({**gap(1), "layout": {"type": "flex", "justifyContent": "space-between"}})
+             + " -->\n" + dyn("query-pagination-previous") + "\n\n"
+             + dyn("query-pagination-numbers") + "\n\n" + dyn("query-pagination-next")
+             + "\n<!-- /wp:query-pagination -->\n\n<!-- wp:query-no-results -->\n"
+             + para("Nothing has been published here yet.") + "\n<!-- /wp:query-no-results --></div>\n<!-- /wp:query -->")
+    border = next((c["slug"] for c in tj["settings"]["color"]["palette"] if c["slug"].startswith("border")), None)
+    search = dyn("search", {"label": "Search", "showLabel": False, "buttonText": "Search",
+                            "buttonPosition": "button-inside", "buttonUseIcon": True,
+                            "style": {"border": {"width": "1px"}}, **({"borderColor": border} if border else {})})
+    content = '<!-- wp:post-content {"layout":{"type":"default"}} /-->'
+    templates = {
+        "page": content,
+        "front-page": content,
+        "index": section(query),
+        "home": section(query),
+        "archive": section(dyn("query-title", {"type": "archive", **fs(big)}) + "\n\n" + query),
+        "search": section(dyn("query-title", {"type": "search", **fs(big)}) + "\n\n"
+                          + search + "\n\n" + query),
+        "single": section(dyn("post-date", fs(small)) + "\n\n" + dyn("post-title", {"level": 1, **fs(big)}) + "\n\n"
+                          + dyn("post-featured-image", {"aspectRatio": "16/9"}) + "\n\n"
+                          + '<!-- wp:post-content {"layout":{"type":"constrained"}} /-->', "article"),
+        "404": section(heading("Page not found") + "\n\n"
+                       + para("The page you were looking for is not here. Try a search, or start from the home page.")
+                       + "\n\n" + search),
+    }
+    for name, body in templates.items():
+        (out / "templates" / f"{name}.html").write_text(shell(body))
     print(f"scaffold-theme: {out} — {len(sources)} page(s), parts {sorted(parts)}, presets {args.presets}; "
           f"theme.json {len(tj['settings']['color']['palette'])} colours, "
           f"{len(tj['settings']['typography']['fontSizes'])} sizes, {len(tj['settings']['spacing']['spacingSizes'])} spacing steps")

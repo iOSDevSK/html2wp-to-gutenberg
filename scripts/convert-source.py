@@ -31,6 +31,11 @@ image, list/list-item. Anything a block cannot hold without losing
 behaviour — a form, a button, an svg, an iframe, an element the old runtime
 drives (data-spa-*), a link wrapping blocks — stays as core/html, verbatim.
 
+In a part (scaffold-theme.py converts the header and footer this way), two
+more: a row of links that is a menu becomes a core/navigation placement (a
+registered pattern resolving the menu's wp_navigation post), and the home
+link that names the site becomes core/site-title + core/site-tagline.
+
 --media-url rewrites the bundle's image tokens (__CLARA_UPLOADS_URI__…/<file>
 and __CLARA_THEME_URI__/assets/<file>) to <url>/<file>. --keep lists element
 paths (1.2.0 …, from the report) whose classes stay classes: the pixel gate's
@@ -40,6 +45,7 @@ Writes the markup and <out>.report.json (every class kept, and why).
 Exit 0; 2 = usage.
 """
 import argparse
+import html as htmlmod
 import json
 import re
 import sys
@@ -138,8 +144,12 @@ def esc_attr(v):
 
 
 class Converter:
-    def __init__(self, source, tokens, presets, media_url, keep, layout=True):
+    def __init__(self, source, tokens, presets, media_url, keep, layout=True, chrome=None):
         self.src = source
+        # A part (header/footer), not a page: menus become core/navigation
+        # placements and the home link the site title. The dict collects what
+        # the theme needs for them: {"slug", "menus", "placements", "site"}.
+        self.chrome = chrome
         self.tokens = tokens
         self.presets = presets
         self.use_layout = presets and layout
@@ -207,6 +217,8 @@ class Converter:
             "core/heading": {"textColor", "backgroundColor", "fontSize", "fontFamily", "lineHeight", "padding", "margin"},
             "core/list": {"textColor", "backgroundColor", "fontSize", "fontFamily", "lineHeight", "padding", "margin"},
             "core/image": set(),
+            "core/site-title": {"textColor", "backgroundColor", "fontSize", "fontFamily", "lineHeight", "padding", "margin"},
+            "core/site-tagline": {"textColor", "backgroundColor", "fontSize", "fontFamily", "lineHeight", "padding", "margin"},
         }[block]
         leading = next((c for c in classes if c.startswith("leading-") and c in cmap), None)
         for cls in classes:
@@ -449,9 +461,91 @@ class Converter:
         html = "".join(self.raw(ch) for ch in run).strip()
         return self.block("core/paragraph", {}, f"<p>{html}</p>") if html else None
 
+    # -- the chrome: menus and the site's name ------------------------------
+    def inside(self, node, tag):
+        while node is not None:
+            if getattr(node, "tag", None) == tag:
+                return True
+            node = node.parent
+        return False
+
+    def text_of(self, node):
+        return htmlmod.unescape(re.sub(r"<[^>]+>", "", self.inner(node))).strip()
+
+    def chrome_block(self, node):
+        """What core has blocks for in a part. A row of links that IS a menu
+        becomes a core/navigation placement: a registered pattern the theme
+        resolves to the menu's wp_navigation post (a static part cannot carry
+        its ID — pitfall #12b), the row's classes on the block, each link's on
+        its <a> at render time. The link home that names the site becomes
+        core/site-title (+ core/site-tagline): the name is the site's own
+        setting, which the importer sets from this text."""
+        c = self.chrome
+        kids = [ch for ch in node.children if isinstance(ch, Node)]
+        texts = [ch for ch in node.children if not isinstance(ch, Node) and not self.blank(ch)]
+        if len(kids) >= 2 and not texts and all(ch.tag == "a" and self.text_only(ch) and site_path(ch.get("href"))
+                                                for ch in kids):
+            paths = [site_path(ch.get("href")) for ch in kids]
+            menu = next((m for m in c["menus"] if m["paths"] == paths), None)
+            if menu is None:
+                area = "footer" if self.inside(node, "footer") else "header"
+                slug, n = f"{area}-navigation", 2
+                while any(m["slug"] == slug for m in c["menus"]):
+                    slug, n = f"{area}-navigation-{n}", n + 1
+                menu = {"slug": slug, "name": f"{area.title()} navigation", "paths": paths,
+                        "labels": [self.text_of(ch) for ch in kids], "derived": True}
+                c["menus"].append(menu)
+            menu["used"] = True
+            n = len(c["placements"]) + 1
+            marker = f"{c['slug']}-navigation-{n}"
+            links = [" ".join(x for x in ch.classes() if not (x == "active" and ch.get("data-status"))) for ch in kids]
+            common = Counter(links).most_common(1)[0][0]
+            flex = self.blockifies(node)
+            wrap = any(x == "flex-wrap" or x.endswith(":flex-wrap") for x in node.classes())
+            block = {"overlayMenu": "never", "className": " ".join(node.classes() + [marker]),
+                     "layout": {"type": "flex", "orientation": "horizontal" if flex else "vertical",
+                                "flexWrap": "wrap" if wrap else "nowrap"}}
+            c["placements"].append({
+                "id": n, "marker": marker, "menu": menu["slug"], "block": block, "flow": not flex,
+                "paths": paths, "source": node.classes(),
+                "items": common, "last": links[-1] if links[-1] != common else "",
+                # what the old runtime drives the element by (a toggled panel)
+                "attrs": {k: (v if v is not None else "") for k, v in node.attrs
+                          if (k.startswith("data-spa-") or k in ("hidden", "style"))},
+            })
+            self.blocks["core/navigation"] += 1
+            return f"<!-- wp:pattern {wp_json({'slug': c['slug'] + '/navigation-' + str(n)})} /-->"
+        if node.tag == "a" and site_path(node.get("href")) == "/" and self.inside(node, "header") and not c["site"] \
+                and not texts and 1 <= len(kids) <= 2 \
+                and all(k.tag == "span" and not any(isinstance(g, Node) for g in k.children) for k in kids):
+            c["site"] = {"name": self.text_of(kids[0]), "description": self.text_of(kids[1]) if len(kids) > 1 else ""}
+            inner = [self.dynamic("core/site-title", kids[0], {"level": 0})]
+            if len(kids) > 1:
+                inner.append(self.dynamic("core/site-tagline", kids[1], {}))
+            saved = (node.tag, node.attrs)
+            node.tag = "div"
+            node.attrs = [(k, " ".join(x for x in (v or "").split() if not (x == "active" and node.get("data-status"))))
+                          for k, v in node.attrs if k == "class"]
+            try:
+                return self.group(node, inner)
+            finally:
+                node.tag, node.attrs = saved
+        return None
+
+    def dynamic(self, name, node, extra):
+        """A server-rendered block (no saved markup) made from node's classes."""
+        attrs, style, classes = self.split(node, name)
+        a = self.open_attrs(attrs, style, classes, extra)
+        self.blocks[name] += 1
+        return f"<!-- wp:{name.replace('core/', '')} {wp_json(a)} /-->"
+
     def convert(self, node):
         if not isinstance(node, Node):
             return []
+        if self.chrome is not None:
+            got = self.chrome_block(node)
+            if got is not None:
+                return [got]
         tag = node.tag
         if tag in DROP_TAGS:
             return []
@@ -530,6 +624,15 @@ class Converter:
             out.extend(self.convert(ch))
         self.flush(run, out, node)
         return out
+
+
+def site_path(href):
+    """A link's path on this site ("/work/"), or None for anything else."""
+    href = (href or "").replace("__CLARA_HOME_URL__", "")
+    if not href.startswith("/") or href.startswith("//"):
+        return None
+    path = href.split("#")[0].split("?")[0]
+    return path if path.endswith("/") else path + "/"
 
 
 def page_nodes(tree, fragment):

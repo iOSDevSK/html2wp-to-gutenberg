@@ -304,10 +304,15 @@ What it writes (SKILL.md steps 2, 4, 6; convert-source.py does the pages):
                  defaults off — contentSize/wideSize from the design's centred
                  width, and a root block gap of 0 with blockGap on, so every
                  gap is a block's own preset and nothing is implied
-  templates/     index, page, front-page: the design's page shell (a group with
-                 its own classes) around the header part, a <main> group, the
-                 post content and the footer part
-  parts/         header and footer, converted from the source's own chrome
+  templates/     Twenty Twenty-Five's set in the design's page shell (a group
+                 with its own classes) around the header part, a <main> group
+                 and the footer part: page and front-page hold the post
+                 content; index, home, archive, search, single and 404 are
+                 built from the presets and the design's content rail
+  parts/         header and footer, converted from the source's own chrome:
+                 menus as core/navigation placements, the site's name as
+                 core/site-title (content/menus.json, placements.json,
+                 site.json; inc/navigation.php; editor-navigation.css)
   content/       every page source as block markup (convert-source.py), and
                  pages.json: each page's key, address and title
   inc/import.php the importer: an admin notice with one button (and a
@@ -380,6 +385,11 @@ image, list/list-item. Anything a block cannot hold without losing
 behaviour — a form, a button, an svg, an iframe, an element the old runtime
 drives (data-spa-*), a link wrapping blocks — stays as core/html, verbatim.
 
+In a part (scaffold-theme.py converts the header and footer this way), two
+more: a row of links that is a menu becomes a core/navigation placement (a
+registered pattern resolving the menu's wp_navigation post), and the home
+link that names the site becomes core/site-title + core/site-tagline.
+
 --media-url rewrites the bundle's image tokens (__CLARA_UPLOADS_URI__…/<file>
 and __CLARA_THEME_URI__/assets/<file>) to <url>/<file>. --keep lists element
 paths (1.2.0 …, from the report) whose classes stay classes: the pixel gate's
@@ -433,7 +443,10 @@ anybody edits as one):
   classes      custom class names in className (is-style-* variations apart)
   styleVars    is-style-* block style variations
 and per theme: templates, parts, patterns (patterns/*.php), pattern
-references (wp:pattern), and the presets theme.json declares.
+references (wp:pattern), the presets theme.json declares, and the chrome —
+the block types the parts are made of, the menus the theme ships as
+wp_navigation posts and where they are placed (content/menus.json,
+content/placements.json), and whether the site's name is core/site-title.
 
 Exit 0; 2 = usage.
 ```

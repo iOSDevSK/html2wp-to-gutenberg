@@ -25,7 +25,10 @@ anybody edits as one):
   classes      custom class names in className (is-style-* variations apart)
   styleVars    is-style-* block style variations
 and per theme: templates, parts, patterns (patterns/*.php), pattern
-references (wp:pattern), and the presets theme.json declares.
+references (wp:pattern), the presets theme.json declares, and the chrome —
+the block types the parts are made of, the menus the theme ships as
+wp_navigation posts and where they are placed (content/menus.json,
+content/placements.json), and whether the site's name is core/site-title.
 
 Exit 0; 2 = usage.
 """
@@ -124,6 +127,21 @@ def declared_presets(theme):
     }
 
 
+def chrome(theme):
+    """What the header and footer are made of."""
+    types = Counter()
+    for f in sorted((theme / "parts").glob("*.html")) if (theme / "parts").is_dir() else []:
+        for name, _ in blocks_in(f.read_text(encoding="utf-8", errors="replace")):
+            types[name] += 1
+    def load(name):
+        f = theme / "content" / name
+        return json.loads(f.read_text()) if f.is_file() else []
+    menus, placements = load("menus.json"), load("placements.json")
+    return {"partBlocks": dict(types.most_common()), "menus": len(menus),
+            "menuItems": sum(len(m.get("items") or []) for m in menus), "navigationPlacements": len(placements),
+            "siteTitle": types.get("core/site-title", 0) > 0}
+
+
 def main(argv):
     args = [a for a in argv if not a.startswith("--")]
     out_json = argv[argv.index("--json") + 1] if "--json" in argv else ""
@@ -149,6 +167,7 @@ def main(argv):
             "patterns": len(list((theme / "patterns").glob("*.php"))) if (theme / "patterns").is_dir() else 0,
             "styleVariations": len(list((theme / "styles").glob("*.json"))) if (theme / "styles").is_dir() else 0,
             "declaredPresets": declared_presets(theme),
+            "chrome": chrome(theme),
         }
     if out_json:
         Path(out_json).write_text(json.dumps(report, indent=2) + "\n")
@@ -161,6 +180,9 @@ def main(argv):
         th = report["theme"]
         print(f"theme: {th['templates']} templates, {th['parts']} parts, {th['patterns']} patterns, "
               f"presets declared {th['declaredPresets']}")
+        ch = th["chrome"]
+        print(f"chrome: {ch['menus']} menus ({ch['menuItems']} links) in {ch['navigationPlacements']} navigation "
+              f"placements, site title {'yes' if ch['siteTitle'] else 'no'}; part blocks {ch['partBlocks']}")
     return 0
 
 

@@ -188,6 +188,39 @@ changes — each silently breaks otherwise:
 
 ### 6. Parts, templates, patterns
 
+**What the scaffold does for the chrome** (`scaffold-theme.py`, converting the
+header and footer with `convert-source.py`'s chrome mode):
+
+- **A row of links that is a menu becomes a navigation placement.** Menus are
+  recognised by what they link to: a container whose links go to the same
+  paths, in order, as a menu the bundle declares (`menus.json`) is that menu;
+  one the bundle never declared (a footer column of five) becomes a menu of
+  its own. The importer creates one `wp_navigation` post per menu; the part
+  holds `<!-- wp:pattern {"slug":"<theme>/navigation-N"} /-->`, a pattern
+  registered in code that resolves the post's ID (#12b). The row's classes
+  go on the block; each link's classes go on its `<a>` at render time
+  (`render_block_core/navigation` + `WP_HTML_Tag_Processor`) — the last
+  link's own when the design gives it its own (a call to action), the
+  current page's (a router's `data-status="active"`) on the link core marks
+  `aria-current` — and core's list and item wrappers step aside
+  (`display:contents`, front end only) so the design's own container lays
+  the links out. A panel the old runtime toggles keeps the attributes it is
+  driven by. In the editor no filter runs, so `editor-navigation.css` aims
+  the design's rules for those classes at core's item markup.
+- **The home link that names the site becomes `core/site-title`** (`level`
+  0: a `<p>`, never the `<h1>` the design's heading rules would restyle)
+  and `core/site-tagline`, in a group with the link's own classes. The
+  importer sets the site's name and tagline from that text, the owner's
+  values recorded first. No image in the link, no `core/site-logo`.
+- **Templates: Twenty Twenty-Five's set** — `index`, `home`, `archive`,
+  `search`, `single`, `404`, plus `page` and `front-page` (the post content
+  alone: the design's pages carry their own headings). The ones the source
+  never had are built from the presets and the design's own content rail
+  (the classes its centred sections carry); their gaps are a one-column
+  grid's, because the design's reset zeroes the margins core's block gap
+  uses (#3), and a listing's auto-fill grid inside a flex column grows
+  thousands of pixels tall.
+
 - Collapse duplicate parts (the reference's header/header-2 were
   byte-identical; footer-2 = footer + lightbox → one of each, lightbox
   always present, inert without triggers).

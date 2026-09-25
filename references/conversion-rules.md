@@ -111,6 +111,21 @@ a max width and auto margins to every child.
 
 ---
 
+## The chrome: menus and the site title (parts only)
+
+| Source (in the header/footer) | Block |
+|---|---|
+| a container of ≥ 2 links whose paths match a menu, in order | `<!-- wp:pattern {"slug":"<theme>/navigation-N"} /-->` → `core/navigation` `{"ref":<menu post>,"overlayMenu":"never"}` with the container's classes |
+| the same, matching no declared menu | the same, and a new menu (`footer-navigation`, …) |
+| `<a href="/">` holding one or two text spans, in the header | a group with the link's classes: `core/site-title` `{"level":0}` + `core/site-tagline` |
+| the menu toggle `<button>` | `core/html`, until buttons are recognised (phase 3) |
+
+Link classes are not stored in the menu — one menu serves several
+placements that style its links differently — but in
+`content/placements.json`, applied at render time.
+
+---
+
 ## Images
 
 Rewrite every `src` to the theme's flat asset folder, keeping only the file name:
