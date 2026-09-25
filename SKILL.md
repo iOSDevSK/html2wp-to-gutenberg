@@ -17,7 +17,7 @@ description: >
   specifically a theme the html2wp converter already produced.
 license: GPL-2.0-or-later
 compatibility: >
-  WordPress 6.6+ (theme.json v3) and PHP 7.4+ for the theme it produces. On the converting machine: PHP CLI with sqlite3 and gd, Python 3 with playwright, numpy and Pillow (scripts/requirements.txt) plus Chromium, node for the wp-block-theme-converter doctor, rsync, curl, unzip. Visual Edit Lite 1.27+ for the two-sided form and SEO gates.
+  WordPress 6.6+ (theme.json v3) and PHP 7.4+ for the theme it produces. On the converting machine: PHP CLI with sqlite3 and gd, Python 3 with playwright, numpy and Pillow (scripts/requirements.txt) plus Chromium, node for the wp-block-theme-converter doctor and, with npm, for scripts/block-roundtrip.cjs, rsync, curl, unzip. Visual Edit Lite 1.27+ for the two-sided form and SEO gates.
 ---
 
 # html2wp theme → native Gutenberg block theme, 1:1

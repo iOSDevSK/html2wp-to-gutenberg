@@ -294,7 +294,8 @@ The sibling block theme, scaffolded the way an official one is laid out.
     python3 scaffold-theme.py --old <html2wp-theme> --tokens tokens.json \
         --out <new-theme> --slug mara-vidal-blocks --name "Mara Vidal Blocks" \
         --css assets/styles.css [--js assets/spa-runtime.js] [--fonts-url URL] \
-        [--media-url http://site/wp-content/themes/<slug>/assets/images] [--presets on|off]
+        [--media-url http://site/wp-content/themes/<slug>/assets/images] [--presets on|off] \
+        [--layout on|off] [--author NAME] [--chrome front-page]
 
 What it writes (SKILL.md steps 2, 4, 6; convert-source.py does the pages):
 
