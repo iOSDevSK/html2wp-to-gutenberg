@@ -1,7 +1,7 @@
 # html2wp-to-gutenberg
 
 An [Agent Skill](https://agentskills.io) that turns a WordPress theme produced by
-the html2wp converter into a **native Gutenberg block theme**. Every page and
+the [html2wp](https://html2wp.dev) converter into a **native Gutenberg block theme**. Every page and
 journal entry becomes core block markup in `post_content`, editable in the
 standard block editor with no plugin, and the front end stays visually 1:1 with
 the original — verified by pixel diff against a real WordPress, not a static
